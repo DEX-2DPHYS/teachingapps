@@ -44,6 +44,13 @@ export function sanitize(html) {
     for (const n of node.childNodes) {
       if (n.nodeType === 3) { s += esc(n.data); continue; }
       if (n.nodeType !== 1) continue;
+      // typeset maths ("Convert to LaTeX"): only its LaTeX source is kept; it is typeset again by
+      // fillMath, so stored or received HTML never gets into the page
+      if (n.tagName === 'SPAN' && n.classList.contains('tx-math') && n.dataset.tex) {
+        const src = n.dataset.src ? ` data-src="${esc(n.dataset.src.slice(0, 2000))}"` : '';
+        s += `<span class="tx-math" contenteditable="false" data-tex="${esc(n.dataset.tex.slice(0, 2000))}"${src}></span>`;
+        continue;
+      }
       const tag = KEEP[n.tagName];
       const inner = walk(n);
       if (!tag) { s += inner; continue; }
@@ -56,7 +63,31 @@ export function sanitize(html) {
   };
   return walk(tpl.content);
 }
-export const plainText = html => { const d = document.createElement('div'); d.innerHTML = sanitize(html).replace(/<br>/g, '\n').replace(/<\/div>/g, '</div>\n'); return d.textContent.replace(/\n+$/, ''); };
+// the text of a box, lines as \n; typeset maths as $latex$
+export const plainText = html => {
+  const d = document.createElement('div');
+  d.innerHTML = sanitize(html).replace(/<br>/g, '\n').replace(/<\/div>/g, '</div>\n');
+  d.querySelectorAll('.tx-math').forEach(m => { m.textContent = `$${m.dataset.tex}$`; });
+  return d.textContent.replace(/\n+$/, '');
+};
+// typeset every maths span below root (KaTeX when loaded, else the LaTeX source)
+export function fillMath(root) {
+  for (const m of root.querySelectorAll('.tx-math')) {
+    if (m.dataset.done === m.dataset.tex) continue;
+    try { m.innerHTML = globalThis.katex ? globalThis.katex.renderToString(m.dataset.tex, { throwOnError: false, strict: false }) : esc(`$${m.dataset.tex}$`); }
+    catch { m.textContent = `$${m.dataset.tex}$`; }
+    m.dataset.done = m.dataset.tex;
+    m.title = 'Typeset maths. Double-click (while editing) to get the typed text back.';
+  }
+}
+// "text with $maths$" -> box HTML: text escaped, maths as spans; src = the typed text of a single formula
+function latexToHtml(s, src) {
+  return String(s).split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g).map(p => {
+    const m = p.match(/^\$\$?([\s\S]+?)\$?\$$/);
+    if (m && p.length > 2) return `<span class="tx-math" contenteditable="false" data-tex="${esc(m[1].trim())}"${src ? ` data-src="${esc(src)}"` : ''}></span>`;
+    return esc(p).replace(/\n/g, '<br>');
+  }).join('');
+}
 
 // ----------------------------------------------------------------------------------- styles
 // (in the module, so the whiteboard and the viewer look the same without sharing a stylesheet)
@@ -83,6 +114,8 @@ const CSS = `
 .tx-bar select, .tx-bar button { font: inherit; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line, #d0d0cc);
   background: var(--btn, #fff); color: inherit; cursor: pointer; }
 .tx-bar button:hover { background: var(--btn-hover, #ececea); }
+.tx-math { white-space: nowrap; }
+.tx-box.editing .tx-math { cursor: pointer; background: rgba(31,95,209,.10); border-radius: 4px; }
 .tx-colors { display: inline-flex; gap: 3px; margin: 0 2px; }
 .tx-bar .tx-swatch { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid var(--panel, #fff); box-shadow: 0 0 0 1px var(--line, #bbb); }
 @media print { .tx-bar, .tx-grip, .tx-resize { display: none !important; } .tx-box.editing { outline: none !important; } }
@@ -104,7 +137,7 @@ export class TextLayer {
   constructor(sheet, opts = {}) {
     addCss();
     this.sheet = sheet;
-    this.o = { editable: true, onChange: () => {}, colors: () => [['auto', '#1b1b1b']], autoColor: () => '#1b1b1b', defaults: () => ({}), extras: [], ...opts };
+    this.o = { editable: true, onChange: () => {}, notify: () => {}, colors: () => [['auto', '#1b1b1b']], autoColor: () => '#1b1b1b', defaults: () => ({}), extras: [], ...opts };
     this.texts = [];
     this.s = 1; this.W = 1200; this.H = 1697;
     this.els = new Map(); // id -> element
@@ -154,7 +187,7 @@ export class TextLayer {
       }
       el.style.cssText = this.boxCss(t);
       el.classList.toggle('fixed', !!t.w);
-      if (t !== this.editing) el.firstChild.innerHTML = sanitize(t.html);
+      if (t !== this.editing) { el.firstChild.innerHTML = sanitize(t.html); fillMath(el.firstChild); }
     }
     for (const [id, el] of this.els) if (!seen.has(id)) { el.remove(); this.els.delete(id); }
   }
@@ -181,6 +214,7 @@ export class TextLayer {
       const r = this.el.getBoundingClientRect();
       this.add((e.clientX - r.left) / this.s, (e.clientY - r.top) / this.s);
     });
+    this.el.addEventListener('dblclick', e => { const m = e.target.closest('.tx-math'); if (m && this.editing) { e.preventDefault(); this.unconvert(m); } });
     // a click outside the box and its bar ends the editing
     document.addEventListener('pointerdown', e => {
       if (!this.editing) return;
@@ -202,7 +236,7 @@ export class TextLayer {
       else if (a === 'bigger' || a === 'smaller') this.step(a === 'bigger' ? 1 : -1);
       else if (a === 'color') this.color(b.dataset.key, b.dataset.css);
       else if (a === 'delete') this.remove(this.editing);
-      else if (a.startsWith('x')) this.o.extras[+a.slice(1)]?.run(this.editing, this);
+      else if (a.startsWith('x')) this.o.extras[+a.slice(1)]?.run(this.editing, this, b);
     });
     this.bar.addEventListener('change', e => {
       if (!this.editing) return;
@@ -355,6 +389,59 @@ export class TextLayer {
     this.editing.html = sanitize(c.innerHTML);
     this.changed();
     this.syncBar();
+  }
+
+  // ---------------------------------------------------------------------------- Convert to LaTeX
+  // The selected letters (one formula), or the whole box (text with maths in it), are sent to
+  // fn(text, mode) -> { text: 'with $latex$', note }, and replaced by the result. Double-click on
+  // the maths brings back the typed text of a converted selection (or the LaTeX of a converted box).
+  async convertLatex(fn, btn) {
+    const t = this.editing, c = this.content();
+    if (!t || this.busy) return;
+    let range = this.selection();
+    const whole = !range;
+    if (whole) { range = document.createRange(); range.selectNodeContents(c); }
+    const text = (whole ? plainText(c.innerHTML) : range.toString()).trim();
+    if (!text) return;
+    this.busy = true;
+    const label = btn?.textContent;
+    if (btn) { btn.textContent = '…'; btn.disabled = true; }
+    try {
+      const r = await fn(text, whole ? 'mixed' : 'formula');
+      if (this.editing !== t) return; // the box was closed meanwhile
+      // put the result in place of the text (by hand: the browser's insertHTML adds line breaks
+      // around non-editable spans and drops spaces)
+      const tpl = document.createElement('template');
+      tpl.innerHTML = latexToHtml(r.text || text, whole ? null : text);
+      range.deleteContents();
+      const last = tpl.content.lastChild;
+      range.insertNode(tpl.content);
+      if (last) { const after = document.createRange(); after.setStartAfter(last); after.collapse(true); this.range = after; }
+      this.focus();
+      fillMath(c);
+      t.html = sanitize(c.innerHTML);
+      this.changed();
+      this.placeBar();
+      if (r.note) this.o.notify(r.note);
+    } catch (err) {
+      this.o.notify('Convert to LaTeX failed: ' + (err.message || err));
+    } finally {
+      this.busy = false;
+      if (btn) { btn.textContent = label; btn.disabled = false; }
+    }
+  }
+  // double-click on typeset maths while editing: back to what was typed (or to its LaTeX)
+  unconvert(m) {
+    const c = this.content();
+    if (!c || !c.contains(m)) return;
+    const tn = document.createTextNode(m.dataset.src || m.dataset.tex);
+    m.replaceWith(tn);
+    const r = document.createRange();
+    r.setStartAfter(tn); r.collapse(true);
+    this.range = r;
+    this.focus();
+    this.editing.html = sanitize(c.innerHTML);
+    this.changed();
   }
 
   // ---------------------------------------------------------------------------- move / width
