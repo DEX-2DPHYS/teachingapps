@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teaching apps</title>
+<style>
+  :root { --bg: #f4f4f2; --panel: #fff; --text: #1d1d1f; --dim: #6b6b70; --line: #dcdcd8; --accent: #1f5fd1; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #1b1c1e; --panel: #232427; --text: #ececec; --dim: #9a9aa0; --line: #3a3b3f; --accent: #6ea0ff; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  p { color: var(--dim); margin: 0 0 24px; }
+  a.app { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; color: var(--text); text-decoration: none; }
+  a.app:hover { border-color: var(--accent); }
+  a.app strong { display: block; color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Teaching apps</h1>
+  <p>Pages for students in DTU courses.</p>
+  <a class="app" href="ink2latex/"><strong>Follow a lecture</strong>The lecturer's whiteboard live on your phone or laptop, with the typeset maths. Join with the code shown on the board.</a>
+</main>
+</body>
+</html>
