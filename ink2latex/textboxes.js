@@ -51,6 +51,13 @@ export function sanitize(html) {
         s += `<span class="tx-math" contenteditable="false" data-tex="${esc(n.dataset.tex.slice(0, 2000))}"${src}></span>`;
         continue;
       }
+      // an answer to "= ?" in the text (see questions / placeAnswer): kept the same way
+      if (n.tagName === 'SPAN' && n.classList.contains('tx-answer') && n.dataset.tex) {
+        const cls = ['calc', 'ai'].includes(n.dataset.cls) ? n.dataset.cls : 'calc';
+        const where = n.dataset.where === 'math' ? 'math' : 'text';
+        s += `<span class="tx-answer" contenteditable="false" data-tex="${esc(n.dataset.tex.slice(0, 2000))}" data-cls="${cls}" data-where="${where}" data-marker="${esc((n.dataset.marker || '?').slice(0, 40))}" data-label="${esc((n.dataset.label || '').slice(0, 200))}"></span>`;
+        continue;
+      }
       const tag = KEEP[n.tagName];
       const inner = walk(n);
       if (!tag) { s += inner; continue; }
@@ -67,17 +74,22 @@ export function sanitize(html) {
 export const plainText = html => {
   const d = document.createElement('div');
   d.innerHTML = sanitize(html).replace(/<br>/g, '\n').replace(/<\/div>/g, '</div>\n');
-  d.querySelectorAll('.tx-math').forEach(m => { m.textContent = `$${m.dataset.tex}$`; });
+  d.querySelectorAll('.tx-math, .tx-answer').forEach(m => { m.textContent = `$${m.dataset.tex}$`; });
   return d.textContent.replace(/\n+$/, '');
 };
+// the text of a piece of a box (a DOM fragment), as plainText does it
+const fragText = frag => { const d = document.createElement('div'); d.appendChild(frag); return plainText(d.innerHTML); };
+const modeOf = k => ({ AI: 'ai', N: 'num', S: 'sym' }[k] || 'calc');
 // typeset every maths span below root (KaTeX when loaded, else the LaTeX source)
 export function fillMath(root) {
-  for (const m of root.querySelectorAll('.tx-math')) {
+  for (const m of root.querySelectorAll('.tx-math, .tx-answer')) {
     if (m.dataset.done === m.dataset.tex) continue;
     try { m.innerHTML = globalThis.katex ? globalThis.katex.renderToString(m.dataset.tex, { throwOnError: false, strict: false }) : esc(`$${m.dataset.tex}$`); }
     catch { m.textContent = `$${m.dataset.tex}$`; }
     m.dataset.done = m.dataset.tex;
-    m.title = 'Typeset maths. Double-click (while editing) to get the typed text back.';
+    m.title = m.classList.contains('tx-answer')
+      ? `${m.dataset.label || 'answer'}. Double-click (while editing) to ask again.`
+      : 'Typeset maths. Double-click (while editing) to get the typed text back.';
   }
 }
 // "text with $maths$" -> box HTML: text escaped, maths as spans; src = the typed text of a single formula
@@ -114,7 +126,10 @@ const CSS = `
 .tx-bar select, .tx-bar button { font: inherit; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line, #d0d0cc);
   background: var(--btn, #fff); color: inherit; cursor: pointer; }
 .tx-bar button:hover { background: var(--btn-hover, #ececea); }
-.tx-math { white-space: nowrap; }
+.tx-math, .tx-answer { white-space: nowrap; }
+.tx-answer { color: #2e7d32; }
+.tx-answer[data-cls=ai] { color: #8e24aa; }
+.tx-box.editing .tx-answer { cursor: pointer; background: rgba(46,125,50,.10); border-radius: 4px; }
 .tx-box.editing .tx-math { cursor: pointer; background: rgba(31,95,209,.10); border-radius: 4px; }
 .tx-colors { display: inline-flex; gap: 3px; margin: 0 2px; }
 .tx-bar .tx-swatch { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid var(--panel, #fff); box-shadow: 0 0 0 1px var(--line, #bbb); }
@@ -137,7 +152,7 @@ export class TextLayer {
   constructor(sheet, opts = {}) {
     addCss();
     this.sheet = sheet;
-    this.o = { editable: true, onChange: () => {}, notify: () => {}, colors: () => [['auto', '#1b1b1b']], autoColor: () => '#1b1b1b', defaults: () => ({}), extras: [], ...opts };
+    this.o = { editable: true, onChange: () => {}, notify: () => {}, onFinish: () => {}, colors: () => [['auto', '#1b1b1b']], autoColor: () => '#1b1b1b', defaults: () => ({}), extras: [], ...opts };
     this.texts = [];
     this.s = 1; this.W = 1200; this.H = 1697;
     this.els = new Map(); // id -> element
@@ -214,7 +229,11 @@ export class TextLayer {
       const r = this.el.getBoundingClientRect();
       this.add((e.clientX - r.left) / this.s, (e.clientY - r.top) / this.s);
     });
-    this.el.addEventListener('dblclick', e => { const m = e.target.closest('.tx-math'); if (m && this.editing) { e.preventDefault(); this.unconvert(m); } });
+    this.el.addEventListener('dblclick', e => {
+      if (!this.editing) return;
+      const a = e.target.closest('.tx-answer'), m = e.target.closest('.tx-math');
+      if (a) { e.preventDefault(); this.unanswer(a); } else if (m) { e.preventDefault(); this.unconvert(m); }
+    });
     // a click outside the box and its bar ends the editing
     document.addEventListener('pointerdown', e => {
       if (!this.editing) return;
@@ -296,6 +315,74 @@ export class TextLayer {
     }
     if (!plainText(t.html).trim()) { this.remove(t); return; }
     this.render();
+    this.changed();
+    this.o.onFinish(t); // e.g. answer the "= ?" in it
+  }
+
+  // ---------------------------------------------------------------------------- "= ?" in the text
+  // Questions in a box: a text piece "... = ?" (also "= ???", "= □", with N / S / AI after it), or
+  // typeset maths ending in "= ?" / "= \square". expr = the line up to and with the marker.
+  questions(t) {
+    const el = this.els.get(t.id);
+    if (!el) return [];
+    const c = el.firstChild, out = [];
+    const lineBefore = (node, offset) => { const r = document.createRange(); r.setStart(c, 0); if (offset == null) r.setEndBefore(node); else r.setEnd(node, offset); return fragText(r.cloneContents()).split('\n').pop(); };
+    const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.parentElement.closest('.tx-math, .tx-answer') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+    for (let n; (n = walker.nextNode());) {
+      for (const m of n.data.matchAll(/=\s*(\?+|□)\s*(AI|N|S)?(?![\p{L}\d?])/gu)) {
+        const start = m.index + m[0].indexOf(m[1]), end = m.index + m[0].length;
+        out.push({ where: 'text', node: n, start, end, marker: n.data.slice(start, end), mode: modeOf(m[2]), expr: lineBefore(n, end).trim() });
+      }
+    }
+    for (const s of c.querySelectorAll('.tx-math')) {
+      const tex = s.dataset.tex;
+      const m = tex.match(/=\s*(\?+|\\square|\\Box|□)\s*(?:\\(?:text|mathrm)\{\s*(AI|N|S)\s*\}|(AI|N|S))?\s*$/);
+      if (!m) continue;
+      out.push({ where: 'math', node: s, marker: tex.slice(m.index + m[0].indexOf(m[1])), mode: modeOf(m[2] || m[3]), expr: (lineBefore(s) + `$${tex}$`).trim() });
+    }
+    return out;
+  }
+  // put an answer {latex, label, cls} in place of the marker of the question with this expr
+  placeAnswer(t, expr, v) {
+    const q = this.questions(t).find(x => x.expr === expr);
+    if (!q) return false;
+    const c = this.els.get(t.id).firstChild;
+    const span = document.createElement('span');
+    span.className = 'tx-answer';
+    span.contentEditable = 'false';
+    Object.assign(span.dataset, { tex: v.latex, cls: v.cls === 'ai' ? 'ai' : 'calc', label: v.label || '', marker: q.marker, where: q.where });
+    if (q.where === 'text') {
+      const r = document.createRange();
+      r.setStart(q.node, q.start); r.setEnd(q.node, q.end);
+      r.deleteContents();
+      r.insertNode(span);
+    } else {
+      const s = q.node;
+      s.dataset.tex = s.dataset.tex.slice(0, s.dataset.tex.length - q.marker.length).trimEnd();
+      delete s.dataset.done;
+      s.after(span);
+      s.after(document.createTextNode(' '));
+    }
+    fillMath(c);
+    t.html = sanitize(c.innerHTML);
+    this.changed();
+    return true;
+  }
+  // double-click on an answer while editing: the marker comes back (and is asked again on leaving)
+  unanswer(a) {
+    const c = this.content();
+    if (!c || !c.contains(a)) return;
+    let back;
+    if (a.dataset.where === 'math') {
+      let s = a.previousSibling;
+      if (s && s.nodeType === 3 && !s.data.trim()) { const sp = s; s = s.previousSibling; sp.remove(); }
+      if (s?.classList?.contains('tx-math')) { s.dataset.tex += ' ' + a.dataset.marker; delete s.dataset.done; }
+      back = document.createTextNode('');
+    } else back = document.createTextNode(a.dataset.marker || '?');
+    a.replaceWith(back);
+    fillMath(c);
+    const r = document.createRange(); r.setStartAfter(back); r.collapse(true); this.range = r; this.focus();
+    this.editing.html = sanitize(c.innerHTML);
     this.changed();
   }
 
