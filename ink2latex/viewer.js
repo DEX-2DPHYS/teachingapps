@@ -3,6 +3,7 @@
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
 import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js';
+import { TextLayer } from './textboxes.js';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -67,7 +68,7 @@ function leave() {
   channel?.unsubscribe();
   clearInterval(pollTimer);
   LS.del('ink2latex.viewer');
-  lecture = null; row = null; cache.clear(); notes.clear(); typed.clear();
+  lecture = null; row = null; cache.clear(); notes.clear(); typed.clear(); boxes.clear(); setTextMode(false);
   setNoteMode(false);
   history.replaceState(null, '', location.pathname);
   show('join');
@@ -109,7 +110,8 @@ async function showPage(no) {
   cur = no;
   updateNav();
   row = cache.get(no) || await fetchPage(no).catch(() => null);
-  await loadNotes(no).catch(() => {});
+  await Promise.all([loadNotes(no).catch(() => {}), loadBoxes(no).catch(() => {})]);
+  myText.setTexts(boxes.get(no)?.texts || (boxes.set(no, { id: null, texts: [] }), boxes.get(no).texts));
   render();
   loadTyped(no).catch(() => {});
 }
@@ -264,6 +266,9 @@ function renderPage(view) {
     cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px';
   }
   geo = { s, dpr, W, H };
+  // typed text: the lecturer's boxes (read only) and your own (private)
+  lecturerText.setScale(s, W, H); lecturerText.setTexts(row?.texts || []);
+  myText.setScale(s, W, H); myText.setHidden(!$('#showNotes').checked);
   renderNotes();
   renderPins();
   const g = c.getContext('2d');
@@ -339,6 +344,56 @@ function renderItems() {
 // The student's own ink on a layer over the lecturer's page: stored in ink2latex.student_notes (one
 // 'ink' row per page), readable only by this student. Lecturer updates redraw the page underneath.
 const NOTE_COLOR = '#1f5fd1';
+
+// ----------------------------------------------------------------------------------- typed text
+// The lecturer's text boxes come with the page (row.texts). Your own text boxes are private: one
+// student_notes row per page (kind 'box', the boxes in the column box).
+const txColors = () => Object.entries(PALETTE);
+const lecturerText = new TextLayer($('#sheet'), { editable: false, colors: txColors, autoColor: () => PALETTE.auto });
+const myText = new TextLayer($('#sheet'), {
+  colors: txColors, autoColor: () => PALETTE.auto, onChange: () => saveBoxesSoon(),
+  defaults: () => ({ font: 'sans', size: 28, color: 'blue' }),
+});
+let textMode = false;
+const boxes = new Map(); // page_no -> {id, texts}
+async function loadBoxes(no) {
+  if (!lecture || boxes.has(no)) return;
+  const { data, error } = await sb.from('student_notes').select('id, box')
+    .eq('lecture_id', lecture.id).eq('page_no', no).eq('kind', 'box')
+    .order('updated_at', { ascending: false }).limit(1);
+  if (error) throw error;
+  boxes.set(no, { id: data?.[0]?.id || null, texts: Array.isArray(data?.[0]?.box) ? data[0].box : [] });
+}
+const boxTimers = new Map();
+function saveBoxesSoon(no = cur) {
+  $('#noteState').textContent = 'saving…';
+  clearTimeout(boxTimers.get(no));
+  boxTimers.set(no, setTimeout(() => saveBoxes(no), 1200));
+}
+async function saveBoxes(no) {
+  const n = boxes.get(no);
+  if (!n || !lecture) return;
+  try {
+    if (n.id) {
+      const { error } = await sb.from('student_notes').update({ box: n.texts, updated_at: new Date().toISOString() }).eq('id', n.id);
+      if (error) throw error;
+    } else {
+      const { data, error } = await sb.from('student_notes').insert({ lecture_id: lecture.id, page_no: no, kind: 'box', box: n.texts }).select('id').single();
+      if (error) throw error;
+      n.id = data.id;
+    }
+    $('#noteState').textContent = 'saved';
+  } catch (err) {
+    $('#noteState').textContent = 'text not saved: ' + (err.message || err);
+  }
+}
+function setTextMode(on) {
+  textMode = !!on;
+  if (textMode) { setNoteMode(false); closePlace(); if (view === 'doc') setView('ink'); if (!$('#showNotes').checked) { $('#showNotes').checked = true; renderNotes(); renderPins(); myText.setHidden(false); } }
+  myText.setActive(textMode);
+  $('#textMode').classList.toggle('on', textMode);
+}
+$('#textMode').addEventListener('click', () => setTextMode(!textMode));
 let geo = { s: 1, dpr: 1, W: 1200, H: 1697 };
 let noteMode = false, noteErase = false, drawing = null, noteRaf = 0;
 const notes = new Map(); // page_no -> {id, strokes}
@@ -366,13 +421,14 @@ const requestNotes = () => { if (!noteRaf) noteRaf = requestAnimationFrame(() =>
 
 function setNoteMode(on) {
   noteMode = on;
+  if (on) setTextMode(false);
   if (!on) noteErase = false;
   document.body.classList.toggle('note-mode', on);
   $('#noteMode').classList.toggle('on', on);
   $('#noteErase').hidden = $('#noteUndo').hidden = !on;
   $('#noteErase').classList.toggle('on', noteErase);
   if (on && view === 'doc') setView('ink');
-  if (on && !$('#showNotes').checked) { $('#showNotes').checked = true; renderNotes(); renderPins(); }
+  if (on && !$('#showNotes').checked) { $('#showNotes').checked = true; renderNotes(); renderPins(); myText.setHidden(!$('#showNotes').checked); }
 }
 
 function notePoint(e) {
@@ -514,7 +570,7 @@ function parseTyped(raw) {
 // double-click (double-tap) on the page: a text field opens right where you clicked
 let placeAt = null;
 function openPlace(clientX, clientY) {
-  if (!lecture || noteMode || view === 'doc') return;
+  if (!lecture || noteMode || textMode || view === 'doc') return;
   const r = $('#sheet').getBoundingClientRect();
   placeAt = { page: cur, x: (clientX - r.left) / geo.s, y: (clientY - r.top) / geo.s };
   const f = $('#placeForm');
@@ -546,7 +602,7 @@ $('#placeForm').addEventListener('submit', async e => {
 // own double-tap detection: works the same for mouse, pen and finger (phones do not all send dblclick)
 let lastTap = null;
 $('#sheet').addEventListener('pointerup', e => {
-  if (noteMode || e.target.closest('.pin')) return;
+  if (noteMode || textMode || e.target.closest('.pin')) return;
   const now = performance.now();
   if (lastTap && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
     lastTap = null;
@@ -592,7 +648,7 @@ $('#viewBtn').addEventListener('click', e => { e.stopPropagation(); $('#viewMenu
 document.addEventListener('click', e => { if (!e.target.closest('#viewWrap')) $('#viewMenu').hidden = true; });
 $('#viewMenu').addEventListener('change', e => {
   if (e.target.name === 'view') setView(e.target.value);
-  else { LS.set('ink2latex.viewer.show', { notes: $('#showNotes').checked, questions: $('#showQuestions').checked }); renderNotes(); renderPins(); }
+  else { LS.set('ink2latex.viewer.show', { notes: $('#showNotes').checked, questions: $('#showQuestions').checked }); renderNotes(); renderPins(); myText.setHidden(!$('#showNotes').checked); }
 });
 $('#leave').addEventListener('click', leave);
 let resizeTimer = 0;
