@@ -1,12 +1,12 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1248';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1248';
-import { initSend } from './send.js?v=2026-10-01.1248';
-import { initStudent } from './student.js?v=2026-10-01.1248';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1248';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1248';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1253';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1253';
+import { initSend } from './send.js?v=2026-10-01.1253';
+import { initStudent } from './student.js?v=2026-10-01.1253';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1253';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1253';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -489,6 +489,8 @@ document.addEventListener('pointerdown', e => {
   document.addEventListener('pointerup', up);
 }, true);
 $('#pagesBtn').addEventListener('click', openPages);
+// no long-press menu on the board (tablets), except in a text box being typed in
+$('#boardWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
 $('#pageLabel').addEventListener('click', openPages);
 
 // ----------------------------------------------------------------------------------- grouping
@@ -803,7 +805,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1248');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1253');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {

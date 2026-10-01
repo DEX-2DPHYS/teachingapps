@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-01.1248';
+import { recognize } from './shapes.js?v=2026-10-01.1253';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -207,6 +207,11 @@ export class Board {
     canvas.addEventListener('pointercancel', lift);
     canvas.addEventListener('pointerleave', () => { this.hover = null; this.trail = []; this.onHover?.(null); this.request(); });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
+    // iPad Safari: its own touch handling (text selection, "Copy / Search" pop-up, double-tap
+    // gestures) must not see touches on the drawing surface, or strokes get lost and the page selected
+    for (const type of ['touchstart', 'touchmove', 'touchend']) {
+      canvas.addEventListener(type, e => e.preventDefault(), { passive: false });
+    }
   }
 
   get strokes() { return this.page.strokes; }
