@@ -12,11 +12,12 @@ const okSrc = src => typeof src === 'string' && (/^https:\/\//.test(src) || /^da
 export const newImageId = () => 'i' + Math.random().toString(36).slice(2, 10);
 
 // draw the page's images (slides first, then figures); images still loading are drawn once they
-// arrive (onLoad is then called, e.g. to redraw the page)
+// arrive (onLoad is then called, e.g. to redraw the page). Returns true when all could be drawn.
 const cache = new Map(); // src -> HTMLImageElement
 export function drawImages(g, images, onLoad) {
-  if (!images?.length) return;
+  if (!images?.length) return true;
   const list = images.filter(im => okSrc(im.src)).sort((a, b) => (b.bg ? 1 : 0) - (a.bg ? 1 : 0));
+  let all = true;
   for (const im of list) {
     let img = cache.get(im.src);
     if (!img) {
@@ -27,7 +28,33 @@ export function drawImages(g, images, onLoad) {
       cache.set(im.src, img);
     }
     if (img.complete && img.naturalWidth) g.drawImage(img, im.x, im.y, im.w, im.h);
+    else all = false;
   }
+  return all;
+}
+
+// The page's images on their own canvas UNDER the ink canvas (which is then transparent): the browser
+// composites the two, so redrawing the ink never redraws a slide (drawing a slide into the ink canvas
+// on every redraw made each redraw 4x slower). update() redraws the layer only when the images,
+// their places, the size or the board colour change. Returns whether the page has images.
+export function imageLayer(canvas) {
+  let key = '';
+  return function update(images, s, dpr, W, H, bg, onLoad) {
+    const has = !!images?.length;
+    canvas.hidden = !has;
+    if (!has) { key = ''; return false; }
+    const pw = Math.round(W * s * dpr), ph = Math.round(H * s * dpr);
+    const k = `${pw}x${ph}|${bg}|` + images.map(i => `${i.src.length}:${i.src.slice(-32)}:${i.x}:${i.y}:${i.w}:${i.h}`).join(';');
+    if (k === key) return true;
+    if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
+    canvas.style.width = W * s + 'px'; canvas.style.height = H * s + 'px';
+    const g = canvas.getContext('2d');
+    g.setTransform(s * dpr, 0, 0, s * dpr, 0, 0);
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+    key = drawImages(g, images, () => { key = ''; onLoad?.(); }) ? k : ''; // not all loaded yet: redraw later
+    return true;
+  };
 }
 
 // an image of natural size w x h, as large as fits inside the page (W x H), centred
