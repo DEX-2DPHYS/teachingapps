@@ -33,10 +33,10 @@
       <label class="check" title="Show the page the lecturer is on"><input type="checkbox" id="follow" checked> Follow</label>
     </div>
     <div class="notes-tools">
-      <button id="noteMode" title="Write your own notes on the page. Only you can see them.">✎ My notes</button>
-      <button id="textMode" title="Type on the page: click where the text should go. Only you can see it.">T Text</button>
-      <button id="noteErase" title="Erase your notes (drag over them)" hidden>⌫</button>
-      <button id="noteUndo" title="Undo your last note stroke" hidden>↶</button>
+      <button id="noteMode" title="Write your own notes on the page. Only you can see them.">✎<span class="lbl"> My notes</span></button>
+      <button id="textMode" title="Type on the page: click where the text should go. Only you can see it.">T<span class="lbl"> Text</span></button>
+      <button id="noteErase" class="keep-room" title="Erase your notes (drag over them)" hidden>⌫</button>
+      <button id="noteUndo" class="keep-room" title="Undo your last note stroke" hidden>↶</button>
       <span id="noteState" class="dim small"></span>
     </div>
     <div id="viewWrap">
@@ -51,7 +51,7 @@
         <label title="Your questions to the lecturer, where you placed them"><input type="checkbox" id="showQuestions" checked> Comments &amp; questions</label>
       </div>
     </div>
-    <button id="sideBtn" title="Show or hide the panel with your notes and the transcription">☰ Panel</button>
+    <button id="sideBtn" title="Show or hide the panel with your notes and the transcription">☰<span class="lbl"> Panel</span></button>
     <button id="leave" title="Leave this lecture">Leave</button>
   </header>
   <main>

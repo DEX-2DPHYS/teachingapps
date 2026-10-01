@@ -345,6 +345,16 @@ function renderItems() {
 // 'ink' row per page), readable only by this student. Lecturer updates redraw the page underneath.
 const NOTE_COLOR = '#1f5fd1';
 
+// "saving…" / "saved" / errors: a small label in the bottom corner, outside the top bar (text
+// changing in the bar made it re-wrap on an iPad, so the page jumped under the pen)
+let noteStatusTimer = 0;
+function setNoteStatus(text) {
+  const el = $('#noteState');
+  el.textContent = text;
+  clearTimeout(noteStatusTimer);
+  if (text && !/…$/.test(text)) noteStatusTimer = setTimeout(() => { el.textContent = ''; }, /not /.test(text) ? 8000 : 2000);
+}
+
 // ----------------------------------------------------------------------------------- typed text
 // The lecturer's text boxes come with the page (row.texts). Your own text boxes are private: one
 // student_notes row per page (kind 'box', the boxes in the column box).
@@ -366,7 +376,7 @@ async function loadBoxes(no) {
 }
 const boxTimers = new Map();
 function saveBoxesSoon(no = cur) {
-  $('#noteState').textContent = 'saving…';
+  setNoteStatus('saving…');
   clearTimeout(boxTimers.get(no));
   boxTimers.set(no, setTimeout(() => saveBoxes(no), 1200));
 }
@@ -382,9 +392,9 @@ async function saveBoxes(no) {
       if (error) throw error;
       n.id = data.id;
     }
-    $('#noteState').textContent = 'saved';
+    setNoteStatus('saved');
   } catch (err) {
-    $('#noteState').textContent = 'text not saved: ' + (err.message || err);
+    setNoteStatus('text not saved: ' + (err.message || err));
   }
 }
 function setTextMode(on) {
@@ -444,7 +454,7 @@ function eraseNotesAt(p) {
 }
 
 function saveNotesSoon(no = cur) {
-  $('#noteState').textContent = 'saving…';
+  setNoteStatus('saving…');
   clearTimeout(saveTimers.get(no));
   saveTimers.set(no, setTimeout(() => saveNotes(no), 1200));
 }
@@ -462,13 +472,14 @@ async function saveNotes(no) {
       if (error) throw error;
       n.id = data.id;
     }
-    $('#noteState').textContent = 'saved';
+    setNoteStatus('saved');
   } catch (err) {
-    $('#noteState').textContent = 'not saved: ' + (err.message || err);
+    setNoteStatus('not saved: ' + (err.message || err));
   }
 }
 
 const nc = $('#notes');
+$('#pageWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
 nc.addEventListener('pointerdown', e => {
   if (!noteMode || !notes.has(cur)) return;
   e.preventDefault();
@@ -558,7 +569,7 @@ async function addMine(text, kind, x = null, y = null) {
     }
     if (error) throw error;
   }
-  $('#noteState').textContent = KIND[kind].done;
+  setNoteStatus(KIND[kind].done);
   await loadTyped(cur);
 }
 // in the side field: "Q: ..." = question, "C: ..." = comment, anything else = private note
@@ -597,7 +608,7 @@ $('#placeForm').addEventListener('submit', async e => {
   const { x, y } = placeAt;
   closePlace();
   try { await addMine(raw, kind, x, y); }
-  catch (err) { $('#noteState').textContent = KIND[kind].fail + (err.message || err); }
+  catch (err) { setNoteStatus(KIND[kind].fail + (err.message || err)); }
 });
 // own double-tap detection: works the same for mouse, pen and finger (phones do not all send dblclick)
 let lastTap = null;
@@ -630,7 +641,7 @@ $('#noteForm').addEventListener('submit', async e => {
     await addMine(text, kind);
     $('#noteText').value = '';
   } catch (err) {
-    $('#noteState').textContent = KIND[kind].fail + (err.message || err);
+    setNoteStatus(KIND[kind].fail + (err.message || err));
   }
 });
 
