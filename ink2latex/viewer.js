@@ -2,8 +2,9 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1111';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1111';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1128';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1128';
+import { drawImages } from './figures.js?v=2026-10-01.1128';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -241,7 +242,7 @@ function setView(v) {
   render();
 }
 
-let renderPending = false;
+let renderPending = false, imageRender = 0;
 function render() {
   if (drawing) { renderPending = true; return; } // the pen is down: redraw after the stroke
   $('#doc').hidden = view !== 'doc';
@@ -279,6 +280,8 @@ function renderPage(view) {
   g.fillRect(0, 0, W, H);
   layer.innerHTML = '';
   if (!row) return;
+  // the lecturer's slides and figures, under the ink (drawn again when an image has loaded)
+  drawImages(g, row.images, () => { clearTimeout(imageRender); imageRender = setTimeout(render, 60); });
   const regs = regions();
   const hidden = new Set(), dim = new Set();
   if (view !== 'ink') {
