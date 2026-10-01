@@ -1,14 +1,14 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1328';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1328';
-import { initSend } from './send.js?v=2026-10-01.1328';
-import { initStudent } from './student.js?v=2026-10-01.1328';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1328';
-import { paneLayer, newPaneId, publicPanes } from '../panes.js?v=2026-10-01.1328';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1328';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1328';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1341';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1341';
+import { initSend } from './send.js?v=2026-10-01.1341';
+import { initStudent } from './student.js?v=2026-10-01.1341';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1341';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-01.1341';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1341';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1341';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -430,14 +430,28 @@ function renderPaneChips(page) {
     layer.id = 'paneChips';
     $('#sheet').appendChild(layer);
     layer.addEventListener('pointerdown', e => {
-      if (!e.target.closest('button')) return;
+      const b = e.target.closest('button');
+      if (!b) return;
       e.preventDefault(); e.stopPropagation();
+      if (b.dataset.z) {
+        // zoom of this pane's content (like browser zoom); saved and sent with the pane
+        const p = curPage().panes?.find(q => q.id === b.closest('.pane-bar').dataset.id);
+        if (!p) return;
+        const z = paneZoom(p), steps = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+        p.zoom = b.dataset.z === 'reset' ? 1 : b.dataset.z === 'in' ? (steps.find(v => v > z + 0.001) || 4) : ([...steps].reverse().find(v => v < z - 0.001) || 0.25);
+        p.shotKey = '';
+        board.request(); saveSoon();
+        return;
+      }
       setInteract(!htmlInteract);
     });
   }
   const s = board.s;
-  layer.innerHTML = (page.panes || []).map(p => `<button class="pane-chip${htmlInteract ? ' on' : ''}" style="left:${p.x * s}px;top:${p.y * s >= 34 ? p.y * s - 32 : p.y * s + 4}px"
-    title="${htmlInteract ? 'Back to writing on the page (or pick a pen tool)' : 'Use the HTML: click, drag, type in it (I)'}">${htmlInteract ? '✎ Write' : '🖱 Use'}</button>`).join('');
+  layer.innerHTML = (page.panes || []).map(p => `<div class="pane-bar" data-id="${p.id}" style="left:${p.x * s}px;top:${p.y * s >= 34 ? p.y * s - 32 : p.y * s + 4}px">
+    <button class="pane-chip${htmlInteract ? ' on' : ''}" title="${htmlInteract ? 'Back to writing on the page (or pick a pen tool)' : 'Use the HTML: click, drag, type in it (I)'}">${htmlInteract ? '✎ Write' : '🖱 Use'}</button>
+    <button class="pane-z" data-z="out" title="Smaller content in this HTML">−</button>
+    <button class="pane-z pct" data-z="reset" title="Content size of this HTML; click for 100 %">${Math.round(paneZoom(p) * 100)} %</button>
+    <button class="pane-z" data-z="in" title="Larger content in this HTML">＋</button></div>`).join('');
 }
 // a border shows when the pointer comes near a pane's top-left corner (borders can be transparent)
 $('#boardWrap').addEventListener('pointermove', e => {
@@ -454,7 +468,7 @@ async function snapshotPane(p) {
   const fr = panes.frame(p.id), doc = fr?.contentDocument;
   if (!doc?.body) return null;
   const out = document.createElement('canvas');
-  const k = Math.min(2, 1600 / p.w);
+  const k = Math.min(2, 1600 / p.w), z = paneZoom(p), kz = k * z; // iframe pixels -> snapshot pixels
   out.width = Math.round(p.w * k); out.height = Math.round(p.h * k);
   const g = out.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, out.width, out.height);
@@ -463,7 +477,7 @@ async function snapshotPane(p) {
   if (cv && cv.clientWidth * cv.clientHeight > 0.4 * p.w * p.h) {
     try {
       const rr = cv.getBoundingClientRect();
-      g.drawImage(cv, rr.left * k, rr.top * k, rr.width * k, rr.height * k);
+      g.drawImage(cv, rr.left * kz, rr.top * kz, rr.width * kz, rr.height * kz);
       const d = g.getImageData(0, 0, out.width, out.height).data;
       let varied = false;
       for (let i = 4; i < d.length; i += 4 * 97) if (d[i] !== d[0] || d[i + 1] !== d[1] || d[i + 2] !== d[2]) { varied = true; break; }
@@ -474,7 +488,7 @@ async function snapshotPane(p) {
   html2canvasP ||= new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'; sc.onload = () => res(window.html2canvas); sc.onerror = rej; document.head.appendChild(sc); });
   try {
     const h2c = await html2canvasP;
-    const c = await h2c(doc.documentElement, { backgroundColor: '#ffffff', scale: k, width: p.w, height: p.h, windowWidth: p.w, windowHeight: p.h, logging: false });
+    const c = await h2c(doc.documentElement, { backgroundColor: '#ffffff', scale: kz, width: p.w / z, height: p.h / z, windowWidth: p.w / z, windowHeight: p.h / z, logging: false });
     g.drawImage(c, 0, 0, out.width, out.height);
     return out;
   } catch { return null; }
@@ -482,7 +496,7 @@ async function snapshotPane(p) {
 async function snapshotPanes(page) {
   for (const p of page.panes || []) {
     if (p.mode !== 'snapshot') continue;
-    const key = `${page.strokes.length}:${(page.texts || []).length}:${p.x},${p.y},${p.w},${p.h}:${page.strokes.at(-1)?.id || 0}`;
+    const key = `${page.strokes.length}:${(page.texts || []).length}:${p.x},${p.y},${p.w},${p.h},${paneZoom(p)}:${page.strokes.at(-1)?.id || 0}`;
     if (p.shotKey === key || !send) continue;
     const c = await snapshotPane(p);
     if (!c) continue;
@@ -650,6 +664,10 @@ const fullscreen = initFullscreen({
   hide: [$('#panel'), $('#panelResizer')],
   menuOpen: () => !$('#settingsMenu').hidden || !$('#sendMenu').hidden || !$('#viewMenu').hidden || !$('#figMenu').hidden,
   tools: [
+    { icon: '＋', tip: 'Zoom in (Ctrl + wheel)', run: () => board.setZoom(board.zoom * 1.2) },
+    { icon: '−', tip: 'Zoom out (Ctrl + wheel)', run: () => board.setZoom(board.zoom / 1.2) },
+    { icon: '⤢', tip: 'Fit the page to the width', run: () => board.setZoom(1) },
+    null,
     { icon: '✎', tip: 'Pen (P)', run: () => setTool('pen'), on: () => board.tool === 'pen' },
     { icon: '🔴', tip: 'Laser pointer (P or Shift)', run: () => setTool('laser'), on: () => board.tool === 'laser' },
     { icon: '⌫', tip: 'Eraser (E)', run: () => setTool('eraser'), on: () => board.tool === 'eraser' },
@@ -981,7 +999,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1328');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1341');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {

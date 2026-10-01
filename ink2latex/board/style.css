@@ -513,3 +513,9 @@ body.html-interact #overlay, body.html-interact #answers, body.html-interact #ty
 .pane-chip.on { background: #2e7d32; }
 body.html-interact .pane-layer iframe { outline: 3px solid rgba(31,95,209,.8) !important; }
 body.html-interact #paneChips { pointer-events: none; }
+
+.pane-bar { position: absolute; display: flex; gap: 3px; align-items: center; pointer-events: auto; }
+.pane-bar .pane-chip { position: static; }
+.pane-z { padding: 2px 8px; border-radius: 12px; font: 600 13px system-ui, sans-serif; background: rgba(255,255,255,.95);
+  border: 1px solid #b8c6e6; color: #1f3f8f; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.pane-z.pct { min-width: 54px; }

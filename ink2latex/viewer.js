@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1328';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1328';
-import { drawImages } from './figures.js?v=2026-10-01.1328';
-import { initFullscreen } from './fullscreen.js?v=2026-10-01.1328';
-import { paneLayer } from './panes.js?v=2026-10-01.1328';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1341';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1341';
+import { drawImages } from './figures.js?v=2026-10-01.1341';
+import { initFullscreen } from './fullscreen.js?v=2026-10-01.1341';
+import { paneLayer } from './panes.js?v=2026-10-01.1341';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -800,6 +800,10 @@ const fullscreen = initFullscreen({
   hide: [$('#side')],
   menuOpen: () => !$('#viewMenu').hidden,
   tools: [
+    { icon: '＋', tip: 'Zoom in (or pinch with two fingers)', run: () => { const r = wrapEl.getBoundingClientRect(); zoomTo(zoom * 1.25, r.left + r.width / 2, r.top + r.height / 2); } },
+    { icon: '−', tip: 'Zoom out', run: () => { const r = wrapEl.getBoundingClientRect(); zoomTo(zoom / 1.25, r.left + r.width / 2, r.top + r.height / 2); } },
+    { icon: '⤢', tip: 'Fit the page to the width', run: () => { const r = wrapEl.getBoundingClientRect(); zoomTo(1, r.left + r.width / 2, r.top); } },
+    null,
     { icon: '◀', tip: 'Previous page', run: () => step(-1) },
     { icon: '▶', tip: 'Next page', run: () => step(1) },
     null,
