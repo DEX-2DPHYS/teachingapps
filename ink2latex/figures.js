@@ -22,7 +22,6 @@ export function drawImages(g, images, onLoad) {
     let img = cache.get(im.src);
     if (!img) {
       img = new Image();
-      img.crossOrigin = 'anonymous';
       img.onload = () => onLoad?.();
       img.src = im.src;
       cache.set(im.src, img);

@@ -2,9 +2,9 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1141';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1141';
-import { drawImages } from './figures.js?v=2026-10-01.1141';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1148';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1148';
+import { drawImages } from './figures.js?v=2026-10-01.1148';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -110,7 +110,9 @@ async function showPage(no) {
   if (no !== cur) closePlace();
   cur = no;
   updateNav();
-  row = cache.get(no) || await fetchPage(no).catch(() => null);
+  // a page fetched earlier is used only if it is still the version the lecturer last sent
+  const known = cache.get(no), version = pages.find(p => p.page_no === no)?.version;
+  row = known && known.version === version ? known : await fetchPage(no).catch(() => known || null);
   await Promise.all([loadNotes(no).catch(() => {}), loadBoxes(no).catch(() => {})]);
   myText.setTexts(boxes.get(no)?.texts || (boxes.set(no, { id: null, texts: [] }), boxes.get(no).texts));
   render();
