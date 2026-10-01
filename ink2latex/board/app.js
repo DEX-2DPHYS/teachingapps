@@ -1,12 +1,12 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1259';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1259';
-import { initSend } from './send.js?v=2026-10-01.1259';
-import { initStudent } from './student.js?v=2026-10-01.1259';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1259';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1259';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1301';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1301';
+import { initSend } from './send.js?v=2026-10-01.1301';
+import { initStudent } from './student.js?v=2026-10-01.1301';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1301';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1301';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -805,7 +805,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1259');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1301');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2381,7 +2381,16 @@ function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
     .map(([k, label]) => e[k] ? `${label} ✓` : `${label} <span title="set ${keyName[k]} and restart the server">(no API key)</span>`).join(' · ')
     + (AI_CLOUD ? ' · in the cloud' : ' · local server')
     + (e.student ? '<br>' + studentRulesText(e.student) : '');
-  if (e.student) student?.setRules(e.student);
+  if (e.student) {
+    student?.setRules(e.student);
+    if (e.student.pay !== 'own' && e.student.models) {
+      settings.liveModel = e.student.models.live; settings.finalModel = e.student.models.final;
+      for (const [id, v] of [['liveModel', settings.liveModel], ['finalModel', settings.finalModel]]) {
+        const sel = $('#' + id); sel.value = v; sel.disabled = true; sel.title = 'Chosen by your lecturer for this course';
+      }
+      renderAll();
+    }
+  }
 }).catch(err => { if (AI_CLOUD) $('#engineStatus').textContent = 'AI in the cloud: ' + err.message; }); }
 checkEngines();
 const autoEl = $('#auto');
@@ -2556,7 +2565,9 @@ student = initStudent({ settings, saveSettings, boardData: () => serialize(false
 function studentRulesText(r) {
   const names = { ink: 'transcription', calc: '= ?', sym: '= ?S', solve: '= ?AI', latex: '∑ LaTeX', coach: 'coach' };
   const on = Object.entries(r.features || {}).filter(([, v]) => v).map(([k]) => names[k]).filter(Boolean);
-  return `Your lecturer allows: ${on.join(', ') || 'no AI'}${r.pay === 'own' ? ' · with your own key (below)' : ` · up to ${Number(r.daily_limit || 0).toFixed(2)} USD per day`}`;
+  const name = v => [...document.querySelectorAll('#liveModel option')].find(o => o.value === v)?.textContent || v;
+  const models = r.pay !== 'own' && r.models ? ` · models: ${name(r.models.live)} (live), ${name(r.models.final)} (final)` : '';
+  return `Your lecturer allows: ${on.join(', ') || 'no AI'}${models}${r.pay === 'own' ? ' · with your own key (below)' : ` · up to ${Number(r.daily_limit || 0).toFixed(2)} USD per day`}`;
 }
 async function enterStudentMode() {
   const lec = student.lecture();
@@ -2600,6 +2611,13 @@ async function loadStudentSettings() {
   if (!lec || cs === null) { form.hidden = true; $('#stuCourse').textContent = lec ? 'Sign in under 📡 Send to set the rules for students.' : 'Choose a lecture under 📡 Send first: these rules are per course.'; return; }
   const r = { features: { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false }, daily_limit: 0.2, pay: 'course', coaching: '', ...(cs || {}) };
   r.features = { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false, ...(cs?.features || {}) };
+  r.models = { live: 'mistral-small', final: 'mistral-medium', ...(cs?.models || {}) };
+  // the same model list as the board's own Live / Final menus
+  for (const [id, v] of [['#stuLive', r.models.live], ['#stuFinal', r.models.final]]) {
+    $(id).innerHTML = $('#liveModel').innerHTML;
+    $(id).querySelectorAll('optgroup').forEach(g => { g.disabled = false; g.label = g.label.replace(' (no API key)', ''); });
+    $(id).value = v;
+  }
   $('#stuCourse').textContent = `Course ${lec.course_code}: what students may use on their own whiteboards ("✍ My board" in the student app).`;
   form.querySelectorAll('[data-sf]').forEach(cb => { cb.checked = !!r.features[cb.dataset.sf]; });
   $('#stuPay').value = r.pay; $('#stuLimit').value = r.daily_limit; $('#stuCoach').value = r.coaching || '';
@@ -2611,7 +2629,7 @@ $('#stuSave').addEventListener('click', async () => {
   if (!lec) return;
   const features = {};
   $('#stuForm').querySelectorAll('[data-sf]').forEach(cb => { features[cb.dataset.sf] = cb.checked; });
-  const data = { features, pay: $('#stuPay').value, daily_limit: Math.max(0, +$('#stuLimit').value || 0), coaching: $('#stuCoach').value.trim() };
+  const data = { features, models: { live: $('#stuLive').value, final: $('#stuFinal').value }, pay: $('#stuPay').value, daily_limit: Math.max(0, +$('#stuLimit').value || 0), coaching: $('#stuCoach').value.trim() };
   $('#stuState').textContent = 'saving…';
   try { await send.saveCourseSettings(lec.course_code, data); $('#stuState').textContent = 'saved'; }
   catch (err) { $('#stuState').textContent = 'not saved: ' + (err.message || err); }

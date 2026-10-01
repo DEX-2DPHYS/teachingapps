@@ -6,7 +6,7 @@
 <title>ink2latex</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-01.1259">
+<link rel="stylesheet" href="style.css?v=2026-10-01.1301">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -122,6 +122,8 @@
             <label class="check"><input type="checkbox" data-sf="solve"> AI solutions (= ?AI)</label>
             <label class="check"><input type="checkbox" data-sf="latex"> ∑ LaTeX (typed text to maths)</label>
             <label class="check" title="Coming: an AI coach that gives feedback following your instructions"><input type="checkbox" data-sf="coach"> Coach (soon)</label>
+            <label class="row" title="The models students use when the course pays (with their own key they choose themselves)">Live model <select id="stuLive"></select></label>
+            <label class="row">Final model <select id="stuFinal"></select></label>
             <label class="row">AI paid by <select id="stuPay"><option value="course">the course (your keys)</option><option value="own">each student (own key)</option></select></label>
             <label class="row" title="When the course pays: the most one student may use per day">Daily limit per student <input type="number" id="stuLimit" min="0" step="0.05" style="width:5em"> USD</label>
             <label class="col">Coaching instructions (for the coach, soon)<textarea id="stuCoach" rows="3" placeholder="e.g. Never give the answer. Point to the first wrong step and ask a question that leads there."></textarea></label>
@@ -199,6 +201,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-01.1259"></script>
+<script type="module" src="app.js?v=2026-10-01.1301"></script>
 </body>
 </html>
