@@ -2,9 +2,9 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1148';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1148';
-import { drawImages } from './figures.js?v=2026-10-01.1148';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1203';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1203';
+import { drawImages } from './figures.js?v=2026-10-01.1203';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -335,16 +335,20 @@ function renderPage(view) {
 
 function renderItems() {
   const regs = regions().filter(({ b }) => b.result && b.result.kind !== 'empty');
+  const waiting = regions().filter(({ b }) => !b.result).length;
+  // the lecturer's "Interpret page" write-up, first (also under View → Document)
+  const doc = row?.interp?.document
+    ? `<details class="interp" open><summary>The page, interpreted (AI)</summary>${renderDoc(row.interp.document)}</details>` : '';
   $('#items').innerHTML = !row ? '<p class="empty">Nothing has been sent for this page yet.</p>'
-    : !regs.length ? '<p class="empty">No transcription yet.</p>'
-    : regs.map(({ b }, i) => {
+    : doc + (!regs.length ? `<p class="empty">No transcription yet${waiting ? ` (${waiting} region${waiting > 1 ? 's' : ''} not transcribed by the lecturer's board yet)` : ''}.</p>`
+    : (waiting ? `<p class="empty small">${waiting} more region${waiting > 1 ? 's' : ''} not transcribed yet.</p>` : '') + regs.map(({ b }, i) => {
       const r = b.result;
       const body = r.kind === 'math' ? `<div class="math">${tex(sourceOf(b), true)}</div>`
         : r.kind === 'figure' ? `<p class="empty">Figure: ${renderMixed(sourceOf(b))}</p>`
         : `<div>${renderMixed(sourceOf(b))}</div>`;
       const ans = b.answer?.latex ? `<div class="answer ${b.answer.cls === 'ai' ? 'ai' : ''}">= ${tex(b.answer.latex, false)}<span class="tag">${esc(b.answer.label)}</span></div>` : '';
       return `<div class="item"><div class="num">${i + 1}${b.confirmed ? ' · checked by the lecturer' : ''}</div>${body}${ans}</div>`;
-    }).join('');
+    }).join(''));
 }
 
 // ----------------------------------------------------------------------------------- my notes (private)

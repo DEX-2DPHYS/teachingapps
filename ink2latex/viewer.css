@@ -164,3 +164,8 @@ body { touch-action: manipulation; }
 /* version label (join screen, View menu): which version this device is running */
 .ver { font-size: 11px; color: var(--dim); margin: 6px 0 0; text-align: center; }
 #viewMenu .ver { text-align: left; padding: 4px 8px 0; border-top: 1px solid var(--line); margin-top: 4px; }
+/* the lecturer's page interpretation, at the top of the panel */
+.interp { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; background: var(--bg); }
+.interp summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.interp h3 { font-size: 15px; margin: 8px 0 4px; }
+.interp p { margin: 6px 0; }
