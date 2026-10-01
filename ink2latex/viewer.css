@@ -159,3 +159,7 @@ body { touch-action: manipulation; }
   #bar { gap: 6px 8px; }
   #bar .title { min-width: 90px; }
 }
+
+/* version label (join screen, View menu): which version this device is running */
+.ver { font-size: 11px; color: var(--dim); margin: 6px 0 0; text-align: center; }
+#viewMenu .ver { text-align: left; padding: 4px 8px 0; border-top: 1px solid var(--line); margin-top: 4px; }
