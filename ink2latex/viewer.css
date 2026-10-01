@@ -46,7 +46,7 @@ main { flex: 1; display: flex; min-height: 0; }
 #ink { position: absolute; left: 0; top: 0; }
 /* the student's own notes, on top; only takes the pen in note mode (otherwise fingers scroll) */
 #notes { position: absolute; left: 0; top: 0; pointer-events: none; }
-body.note-mode #notes { pointer-events: auto; touch-action: none; cursor: crosshair; }
+body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor: crosshair; }
 .notes-tools { display: flex; align-items: center; gap: 4px; }
 #noteMode.on, #noteErase.on, #textMode.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .small { font-size: 12px; }
@@ -60,7 +60,8 @@ body.note-mode #notes { pointer-events: auto; touch-action: none; cursor: crossh
 .my .st { font-size: 11px; color: var(--dim); margin-left: 6px; }
 #layer { position: absolute; inset: 0; pointer-events: none; }
 /* double-tap must not zoom the phone's page, and must not select text */
-#sheet { touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+#sheet { touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; }
+#pageWrap { touch-action: pan-x pan-y; }
 
 /* View menu */
 #viewWrap { position: relative; }

@@ -2,8 +2,8 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.0946';
-import { TextLayer } from './textboxes.js?v=2026-10-01.0946';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1111';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1111';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -259,7 +259,7 @@ function render() {
 function renderPage(view) {
   const [W, H] = PAGE[row?.orientation] || PAGE.portrait;
   const wrap = $('#pageWrap');
-  const s = Math.max(0.15, (wrap.clientWidth - 24) / W);
+  const s = Math.max(0.15, (wrap.clientWidth - 24) / W) * zoom; // zoom 1 = the page fits the width
   const dpr = window.devicePixelRatio || 1;
   const sheet = $('#sheet'), c = $('#ink'), layer = $('#layer');
   sheet.style.width = W * s + 'px'; sheet.style.height = H * s + 'px';
@@ -495,13 +495,17 @@ const nc = $('#notes');
 $('#pageWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
 nc.addEventListener('pointerdown', e => {
   dbg('down', e);
+  if (e.pointerType === 'pen') penSeen = true;
   if (!noteMode || !notes.has(cur)) return;
+  if (e.pointerType === 'touch' && (penSeen || pinch)) return; // fingers scroll and zoom; the pen writes
   e.preventDefault();
+  // a second finger while a finger is writing: that is a pinch, not writing (drop the finger's stroke)
+  if (e.pointerType === 'touch' && drawing?.touch) { drawing = null; requestNotes(); return; }
   if (drawing) endNote({ pointerId: drawing.id }); // the previous stroke's pen-up never arrived: keep it
   try { nc.setPointerCapture(e.pointerId); } catch { /* not capturable (rare on iOS): draw anyway */ }
   const p = notePoint(e);
   if (noteErase || (e.buttons & 32)) { drawing = { id: e.pointerId, erase: true }; if (eraseNotesAt(p)) requestNotes(); }
-  else drawing = { id: e.pointerId, stroke: { size: 3, pen: e.pointerType === 'pen', pts: [p] } };
+  else drawing = { id: e.pointerId, touch: e.pointerType === 'touch', stroke: { size: 3, pen: e.pointerType === 'pen', pts: [p] } };
   requestNotes();
 });
 nc.addEventListener('pointermove', e => {
@@ -527,8 +531,70 @@ nc.addEventListener('pointercancel', endNote);
 // iPad Safari: without this, a quick second pen touch can be taken for part of a double-tap gesture
 // and its pointer events are swallowed (every other stroke missing). Only while writing notes.
 for (const type of ['touchstart', 'touchmove', 'touchend']) {
-  nc.addEventListener(type, e => { if (type === 'touchstart') dbg('touch', e); if (noteMode) e.preventDefault(); }, { passive: false });
+  nc.addEventListener(type, e => {
+    if (type === 'touchstart') dbg('touch', e);
+    if (!noteMode) return;
+    const stylus = [...e.changedTouches].some(t => t.touchType === 'stylus');
+    if (stylus || (fingers(e).length === 1 && !penSeen && !pinch)) e.preventDefault();
+  }, { passive: false });
 }
+
+// ----------------------------------------------------------------------------------- zoom
+// Two fingers: pinch to zoom (0.5x to 5x) and drag to move the page; shown live with a CSS transform,
+// drawn sharp at the new size when the fingers lift. Laptops: Ctrl + wheel, or a trackpad pinch.
+let zoom = 1, pinch = null, penSeen = false;
+const wrapEl = $('#pageWrap');
+const fingers = e => [...e.touches].filter(t => t.touchType !== 'stylus');
+const clampZoom = z => Math.max(0.5, Math.min(5, z));
+// keep the page point that was under (x0, y0) on screen under (x1, y1) after re-drawing at zoom z
+function zoomTo(z, x0, y0, x1 = x0, y1 = y0) {
+  const r0 = $('#sheet').getBoundingClientRect();
+  const px = (x0 - r0.left) / geo.s, py = (y0 - r0.top) / geo.s;
+  zoom = clampZoom(z);
+  render();
+  const r1 = $('#sheet').getBoundingClientRect();
+  wrapEl.scrollLeft += r1.left + px * geo.s - x1;
+  wrapEl.scrollTop += r1.top + py * geo.s - y1;
+}
+wrapEl.addEventListener('touchstart', e => {
+  const f = fingers(e);
+  if (f.length !== 2 || view === 'doc') return;
+  e.preventDefault();
+  if (drawing?.touch) { drawing = null; requestNotes(); } // the first finger had started a stroke: drop it
+  const [a, b] = f, r = $('#sheet').getBoundingClientRect();
+  const mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  pinch = { d0: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, mid0: mid, mid, k: 1 };
+  $('#sheet').style.transformOrigin = `${mid.x - r.left}px ${mid.y - r.top}px`;
+}, { passive: false });
+wrapEl.addEventListener('touchmove', e => {
+  if (!pinch) return;
+  const f = fingers(e);
+  if (f.length < 2) return;
+  e.preventDefault();
+  const [a, b] = f;
+  pinch.k = clampZoom(zoom * Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.d0) / zoom;
+  pinch.mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  $('#sheet').style.transform = `translate(${pinch.mid.x - pinch.mid0.x}px, ${pinch.mid.y - pinch.mid0.y}px) scale(${pinch.k})`;
+}, { passive: false });
+const endPinch = e => {
+  if (!pinch || fingers(e).length >= 2) return;
+  const p = pinch;
+  pinch = null;
+  $('#sheet').style.transform = '';
+  zoomTo(zoom * p.k, p.mid0.x, p.mid0.y, p.mid.x, p.mid.y);
+};
+wrapEl.addEventListener('touchend', endPinch);
+wrapEl.addEventListener('touchcancel', endPinch);
+// Ctrl + wheel (a trackpad pinch arrives as this too)
+let wheelTimer = 0, wheelZoom = 0;
+wrapEl.addEventListener('wheel', e => {
+  if (!e.ctrlKey || view === 'doc') return;
+  e.preventDefault();
+  wheelZoom = (wheelZoom || zoom) * Math.exp(-e.deltaY * 0.01);
+  const x = e.clientX, y = e.clientY;
+  clearTimeout(wheelTimer);
+  wheelTimer = setTimeout(() => { const z = wheelZoom; wheelZoom = 0; zoomTo(z, x, y); }, 60);
+}, { passive: false });
 
 // diagnostics (?debug=1 or &debug=1): what the device reports for each touch, in a corner box
 const DEBUG = new URLSearchParams(location.search).has('debug');
