@@ -1,15 +1,15 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1416';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1416';
-import { initSend } from './send.js?v=2026-10-01.1416';
-import { initStudent } from './student.js?v=2026-10-01.1416';
-import { initAssign } from './assign.js?v=2026-10-01.1416';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1416';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-01.1416';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1416';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1416';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1456';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1456';
+import { initSend } from './send.js?v=2026-10-01.1456';
+import { initStudent } from './student.js?v=2026-10-01.1456';
+import { initAssign } from './assign.js?v=2026-10-01.1456';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1456';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-01.1456';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1456';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1456';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1001,7 +1001,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1416');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1456');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2340,6 +2340,7 @@ async function flattenPage(p, { online = false, theme = settings.board, orientat
   const q = copyPage({ blocks: [], texts: [], images: [], panes: [], ...p, strokes: [] });
   q.blocks = []; q.interp = null; q.hidden = false;
   q.texts = q.texts.map(t => ({ ...t, lock: true }));
+  q.images = q.images.map(im => ({ ...im, lock: true })); // slides and figures stay too (no handles, not cleared)
   if (p.strokes?.length) {
     const k = 2, c = document.createElement('canvas');
     c.width = W * k; c.height = H * k;
