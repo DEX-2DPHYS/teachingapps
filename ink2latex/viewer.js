@@ -241,7 +241,9 @@ function setView(v) {
   render();
 }
 
+let renderPending = false;
 function render() {
+  if (drawing) { renderPending = true; return; } // the pen is down: redraw after the stroke
   $('#doc').hidden = view !== 'doc';
   $('#sheet').hidden = view === 'doc';
   renderItems();
@@ -424,8 +426,15 @@ function renderNotes() {
   g.clearRect(0, 0, c.width, c.height);
   g.setTransform(geo.dpr * geo.s, 0, 0, geo.dpr * geo.s, 0, 0);
   g.fillStyle = NOTE_COLOR;
-  const list = [...($('#showNotes').checked ? notes.get(cur)?.strokes || [] : []), ...(drawing?.stroke ? [drawing.stroke] : [])];
-  for (const st of list) g.fill(strokePath(st));
+  if ($('#showNotes').checked) for (const st of notes.get(cur)?.strokes || []) g.fill(notePath(st));
+  if (drawing?.stroke) g.fill(strokePath(drawing.stroke)); // only the stroke being written is recomputed
+}
+// a finished note stroke's outline, computed once (erasing removes strokes, it never changes one)
+const notePaths = new WeakMap();
+function notePath(st) {
+  let p = notePaths.get(st);
+  if (!p) { p = strokePath(st); notePaths.set(st, p); }
+  return p;
 }
 const requestNotes = () => { if (!noteRaf) noteRaf = requestAnimationFrame(() => { noteRaf = 0; renderNotes(); }); };
 
@@ -453,14 +462,18 @@ function eraseNotesAt(p) {
   return n.strokes.length !== before;
 }
 
+// saved once the pen has rested for SAVE_IDLE ms; nothing is saved (or shown) while writing
+const SAVE_IDLE = 2500;
+let lastPenUp = 0;
 function saveNotesSoon(no = cur) {
-  setNoteStatus('saving…');
   clearTimeout(saveTimers.get(no));
-  saveTimers.set(no, setTimeout(() => saveNotes(no), 1200));
+  saveTimers.set(no, setTimeout(() => saveNotes(no), SAVE_IDLE));
 }
 async function saveNotes(no) {
   const n = notes.get(no);
   if (!n || !lecture) return;
+  if (drawing || performance.now() - lastPenUp < SAVE_IDLE - 100) { saveNotesSoon(no); return; } // still writing
+  setNoteStatus('saving…');
   const r1 = v => Math.round(v * 10) / 10;
   const strokes = n.strokes.map(st => ({ size: st.size, pen: st.pen, pts: st.pts.map(([x, y, p]) => [r1(x), r1(y), Math.round(p * 100) / 100]) }));
   try {
@@ -483,7 +496,7 @@ $('#pageWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx
 nc.addEventListener('pointerdown', e => {
   if (!noteMode || !notes.has(cur)) return;
   e.preventDefault();
-  nc.setPointerCapture(e.pointerId);
+  try { nc.setPointerCapture(e.pointerId); } catch { /* not capturable (rare on iOS): draw anyway */ }
   const p = notePoint(e);
   if (noteErase || (e.buttons & 32)) { drawing = { id: e.pointerId, erase: true }; if (eraseNotesAt(p)) requestNotes(); }
   else drawing = { id: e.pointerId, stroke: { size: 3, pen: e.pointerType === 'pen', pts: [p] } };
@@ -501,8 +514,10 @@ const endNote = e => {
   if (!drawing || e.pointerId !== drawing.id) return;
   if (drawing.stroke) notes.get(cur).strokes.push(drawing.stroke);
   drawing = null;
+  lastPenUp = performance.now();
   saveNotesSoon();
   requestNotes();
+  if (renderPending) { renderPending = false; render(); } // a lecturer update that came in while writing
 };
 nc.addEventListener('pointerup', endNote);
 nc.addEventListener('pointercancel', endNote);
