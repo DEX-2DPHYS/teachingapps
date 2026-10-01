@@ -6,7 +6,7 @@
 <title>ink2latex</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-01.1308">
+<link rel="stylesheet" href="style.css?v=2026-10-01.1323">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -63,6 +63,7 @@
   </div>
 
   <div class="group">
+    <button id="htmlBtn" title="Use the HTML on this page (click, drag, type in it). Press again, choose a pen tool, or press I, to write on it." hidden>🖱<span class="lbl"> Interact</span></button>
     <label class="check live-toggle" title="Live: transcribe automatically when you pause (model in ⚙ Settings)"><input type="checkbox" id="auto" checked> Live</label>
     <button id="interpret" title="Read the whole page in context (final model): fixes misreadings, groups split expressions, writes a clean document. Never corrects the maths.">Interpret</button>
     <div class="menu">
@@ -70,10 +71,12 @@
       <div id="figMenu" class="popup" hidden>
         <button data-fig="slides" title="Each page of the PDF becomes a page here, with the slide as background. Export slides from PowerPoint as PDF.">Import slides (PDF)…</button>
         <button data-fig="figure" title="An image on this page, under the ink. Move, resize or delete it with the Select tool (S).">Insert figure (image)…</button>
+        <button data-fig="html" title="A single-file, self-contained HTML page (e.g. a simulation) on this page, under the ink. 🖱 (or I) switches between using it and writing on it; Select (S) moves, resizes and sets it up.">Insert HTML…</button>
         <button data-fig="clear" title="Remove slides and figures, writing, or both: on this page or on all pages">Clear…</button>
       </div>
       <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
       <input type="file" id="figInput" accept="image/*" hidden>
+      <input type="file" id="htmlInput" accept=".html,.htm,text/html" hidden>
     </div>
     <button id="photoBtn" title="Photo: transcribe a photo of a page (camera on phones). You can also drop or paste an image.">📷<span class="lbl"> Photo</span></button>
     <input type="file" id="photoInput" accept="image/*,.heic,.heif" capture="environment" hidden>
@@ -202,6 +205,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-01.1308"></script>
+<script type="module" src="app.js?v=2026-10-01.1323"></script>
 </body>
 </html>

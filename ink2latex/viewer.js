@@ -2,10 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1308';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1308';
-import { drawImages } from './figures.js?v=2026-10-01.1308';
-import { initFullscreen } from './fullscreen.js?v=2026-10-01.1308';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1323';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1323';
+import { drawImages } from './figures.js?v=2026-10-01.1323';
+import { initFullscreen } from './fullscreen.js?v=2026-10-01.1323';
+import { paneLayer } from './panes.js?v=2026-10-01.1323';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -250,6 +251,9 @@ function setView(v) {
 }
 
 let renderPending = false, imageRender = 0;
+// the lecturer's HTML panes that students run themselves: sandboxed (scripts only: no access to this
+// app, the login or the notes), placed between the slide and the ink
+const studentPanes = paneLayer($('#sheet'), { sandbox: 'allow-scripts', before: $('#ink') });
 function render() {
   if (drawing) { renderPending = true; return; } // the pen is down: redraw after the stroke
   $('#doc').hidden = view !== 'doc';
@@ -271,7 +275,7 @@ function renderPage(view) {
   const dpr = window.devicePixelRatio || 1;
   const sheet = $('#sheet'), c = $('#ink'), layer = $('#layer');
   sheet.style.width = W * s + 'px'; sheet.style.height = H * s + 'px';
-  for (const cv of [c, $('#notes')]) {
+  for (const cv of [c, $('#notes'), $('#imgs')]) {
     cv.width = Math.round(W * s * dpr); cv.height = Math.round(H * s * dpr);
     cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px';
   }
@@ -281,14 +285,19 @@ function renderPage(view) {
   myText.setScale(s, W, H); myText.setHidden(!$('#showNotes').checked);
   renderNotes();
   renderPins();
+  // layers, bottom to top: page + slides/figures (#imgs), the lecturer's HTML (sandboxed), the ink (#ink)
+  const gi = $('#imgs').getContext('2d');
+  gi.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
+  gi.fillStyle = '#fff';
+  gi.fillRect(0, 0, W, H);
   const g = c.getContext('2d');
   g.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
-  g.fillStyle = '#fff';
-  g.fillRect(0, 0, W, H);
+  g.clearRect(0, 0, W, H);
   layer.innerHTML = '';
+  studentPanes.update(row?.panes || [], s, W, H, { interact: !noteMode && !textMode });
   if (!row) return;
   // the lecturer's slides and figures, under the ink (drawn again when an image has loaded)
-  drawImages(g, row.images, () => { clearTimeout(imageRender); imageRender = setTimeout(render, 60); });
+  drawImages(gi, row.images, () => { clearTimeout(imageRender); imageRender = setTimeout(render, 60); });
   const regs = regions();
   const hidden = new Set(), dim = new Set();
   if (view !== 'ink') {
@@ -415,6 +424,7 @@ async function saveBoxes(no) {
 }
 function setTextMode(on) {
   textMode = !!on;
+  studentPanes?.layer.classList.toggle('interact', !textMode && !noteMode);
   if (textMode) { setNoteMode(false); closePlace(); if (view === 'doc') setView('ink'); if (!$('#showNotes').checked) { $('#showNotes').checked = true; renderNotes(); renderPins(); myText.setHidden(false); } }
   myText.setActive(textMode);
   $('#textMode').classList.toggle('on', textMode);
@@ -454,6 +464,7 @@ const requestNotes = () => { if (!noteRaf) noteRaf = requestAnimationFrame(() =>
 
 function setNoteMode(on) {
   noteMode = on;
+  studentPanes?.layer.classList.toggle('interact', !on && !textMode);
   if (on) setTextMode(false);
   if (!on) noteErase = false;
   document.body.classList.toggle('note-mode', on);

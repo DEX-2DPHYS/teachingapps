@@ -5,7 +5,7 @@
 // The login is the same anonymous student login the student app uses (storage key ink2latex-student),
 // so on one device a student is one person: their notes, questions and board belong together.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from '../config.js?v=2026-10-01.1308';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from '../config.js?v=2026-10-01.1323';
 
 let sb = null;
 async function client() {

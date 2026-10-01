@@ -38,8 +38,10 @@ export function drawImages(g, images, onLoad) {
 // their places, the size or the board colour change. Returns whether the page has images.
 export function imageLayer(canvas) {
   let key = '';
-  return function update(images, s, dpr, W, H, bg, onLoad) {
-    const has = !!images?.length;
+  // force: show the layer (with just the page colour) even without images, e.g. under an HTML pane
+  return function update(images, s, dpr, W, H, bg, onLoad, force = false) {
+    images = images || [];
+    const has = images.length > 0 || force;
     canvas.hidden = !has;
     if (!has) { key = ''; return false; }
     const pw = Math.round(W * s * dpr), ph = Math.round(H * s * dpr);

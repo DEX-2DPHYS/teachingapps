@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-01.1308';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-01.1323';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -268,9 +268,9 @@ export function initSend(app) {
       });
       for (const r of rows) {
         let { error } = await c.from('lecture_pages').upsert(r.row, { onConflict: 'lecture_id,page_no' });
-        if (error && /texts|images/.test(error.message)) {
+        if (error && /texts|images|panes/.test(error.message)) {
           // the database has no text-box / image column yet (supabase-setup.sql not re-run): send without
-          const { texts, images, ...rest } = r.row;
+          const { texts, images, panes, ...rest } = r.row;
           ({ error } = await c.from('lecture_pages').upsert(rest, { onConflict: 'lecture_id,page_no' }));
           if (!error && texts?.length && !S.warnedTexts) { S.warnedTexts = true; app.toast('Text boxes are not sent yet: run supabase-setup.sql once more'); }
         }
@@ -608,6 +608,18 @@ export function initSend(app) {
     if (error) throw error;
   }
 
+  // an HTML file (Insert HTML) to Storage, stored as plain text (the apps put it in a sandboxed
+  // iframe with srcdoc); returns its web address, or null when not signed in
+  async function uploadText(text) {
+    if (!S.user) await refreshUser().catch(() => {});
+    if (!S.user) return null;
+    const c = await client();
+    const path = `${S.user.id}/${crypto.randomUUID()}.html`;
+    const { error } = await c.storage.from('ink2latex').upload(path, new Blob([text], { type: 'text/plain' }), { contentType: 'text/plain', cacheControl: '31536000', upsert: false });
+    if (error) throw error;
+    return c.storage.from('ink2latex').getPublicUrl(path).data.publicUrl;
+  }
+
   // the login's token, for the cloud AI (Edge Function); null when not signed in as lecturer
   async function accessToken() {
     if (!S.user) await refreshUser().catch(() => {});
@@ -615,6 +627,6 @@ export function initSend(app) {
     const { data } = await (await client()).auth.getSession();
     return data.session?.access_token || null;
   }
-  return { changed, isLive: () => S.live, push, renderDots: () => renderDots(), accessToken, uploadImage, courseSettings, saveCourseSettings };
+  return { changed, isLive: () => S.live, push, renderDots: () => renderDots(), accessToken, uploadImage, uploadText, courseSettings, saveCourseSettings };
 }
 

@@ -496,3 +496,12 @@ body[data-board="black"] #studentChip { background: #22314d; color: #cfe0ff; }
 html { -webkit-text-size-adjust: 100%; }
 
 #fsBtn { font-size: 16px; }
+
+/* HTML panes: while "Interact" is on, the pen goes to the HTML, not to the ink */
+body.html-interact #sheet canvas, body.html-interact .tx-layer, body.html-interact #figLayer,
+body.html-interact #overlay, body.html-interact #answers, body.html-interact #typeset { pointer-events: none !important; }
+#htmlBtn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fig-box.pane { outline-color: rgba(31,95,209,.8); }
+.fig-h.border { left: -13px; bottom: -13px; background: #555; cursor: pointer; }
+.fig-h.mode { left: 18px; top: -13px; width: auto; padding: 0 8px; background: #2e7d32; cursor: pointer; font-size: 12px; }
+.fig-h.mode.snap { background: #6a1b9a; }
