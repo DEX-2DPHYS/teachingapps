@@ -494,3 +494,5 @@ body[data-board="black"] #studentChip { background: #22314d; color: #cfe0ff; }
 #toolbar, #boardWrap { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #boardWrap .tx-box.editing .tx-content, #toolbar input, #toolbar select { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 html { -webkit-text-size-adjust: 100%; }
+
+#fsBtn { font-size: 16px; }

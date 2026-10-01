@@ -1,12 +1,13 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1301';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1301';
-import { initSend } from './send.js?v=2026-10-01.1301';
-import { initStudent } from './student.js?v=2026-10-01.1301';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1301';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1301';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1308';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1308';
+import { initSend } from './send.js?v=2026-10-01.1308';
+import { initStudent } from './student.js?v=2026-10-01.1308';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1308';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1308';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1308';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -489,6 +490,27 @@ document.addEventListener('pointerdown', e => {
   document.addEventListener('pointerup', up);
 }, true);
 $('#pagesBtn').addEventListener('click', openPages);
+
+// full screen: the page alone, essential tools in a floating bar at the left (viewer/fullscreen.js)
+const fullscreen = initFullscreen({
+  toolbar: $('#toolbar'),
+  hide: [$('#panel'), $('#panelResizer')],
+  menuOpen: () => !$('#settingsMenu').hidden || !$('#sendMenu').hidden || !$('#viewMenu').hidden || !$('#figMenu').hidden,
+  tools: [
+    { icon: '✎', tip: 'Pen (P)', run: () => setTool('pen'), on: () => board.tool === 'pen' },
+    { icon: '🔴', tip: 'Laser pointer (P or Shift)', run: () => setTool('laser'), on: () => board.tool === 'laser' },
+    { icon: '⌫', tip: 'Eraser (E)', run: () => setTool('eraser'), on: () => board.tool === 'eraser' },
+    { icon: '◌', tip: 'Select (S)', run: () => setTool('lasso'), on: () => board.tool === 'lasso' },
+    { icon: 'T', tip: 'Text (T)', run: () => setTool('text'), on: () => board.tool === 'text' },
+    null,
+    { icon: '↶', tip: 'Undo (Ctrl+Z)', run: () => board.undo() },
+    { icon: '↷', tip: 'Redo (Ctrl+Y)', run: () => board.redo() },
+    null,
+    { icon: '◀', tip: 'Previous page (←)', run: () => state.cur > 0 && gotoPage(state.cur - 1) },
+    { icon: '▶', tip: 'Next page (→)', run: () => state.cur < state.pages.length - 1 && gotoPage(state.cur + 1) },
+  ],
+});
+$('#fsBtn').addEventListener('click', () => fullscreen.toggle());
 // no long-press menu on the board (tablets), except in a text box being typed in
 $('#boardWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
 $('#pageLabel').addEventListener('click', openPages);
@@ -805,7 +827,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1301');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1308');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2193,6 +2215,7 @@ function setTool(t) {
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
   applyCursor();
   renderFigHandles();
+  fullscreen?.sync();
   board.request();
 }
 

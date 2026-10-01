@@ -2,9 +2,10 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1301';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1301';
-import { drawImages } from './figures.js?v=2026-10-01.1301';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1308';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1308';
+import { drawImages } from './figures.js?v=2026-10-01.1308';
+import { initFullscreen } from './fullscreen.js?v=2026-10-01.1308';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -782,6 +783,21 @@ $('#viewMenu').addEventListener('change', e => {
   else { LS.set('ink2latex.viewer.show', { notes: $('#showNotes').checked, questions: $('#showQuestions').checked }); renderNotes(); renderPins(); myText.setHidden(!$('#showNotes').checked); }
 });
 $('#leave').addEventListener('click', leave);
+// full screen: the page alone, a small floating bar at the left (fullscreen.js)
+const fullscreen = initFullscreen({
+  toolbar: $('#bar'),
+  hide: [$('#side')],
+  menuOpen: () => !$('#viewMenu').hidden,
+  tools: [
+    { icon: '◀', tip: 'Previous page', run: () => step(-1) },
+    { icon: '▶', tip: 'Next page', run: () => step(1) },
+    null,
+    { icon: '✎', tip: 'My notes: write on the page (only you see them)', run: () => setNoteMode(!noteMode), on: () => noteMode },
+    { icon: 'T', tip: 'Type on the page (only you see it)', run: () => setTextMode(!textMode), on: () => textMode },
+  ],
+  onChange: () => { if (lecture) setTimeout(render, 250); },
+});
+$('#fsBtn').addEventListener('click', () => fullscreen.toggle());
 // the side panel (notes, transcription): hidden or shown by the student; on narrow screens (phone,
 // iPad upright) it starts hidden so the page gets the room
 function setSide(on, remember) {
