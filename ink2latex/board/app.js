@@ -1,14 +1,14 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1323';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1323';
-import { initSend } from './send.js?v=2026-10-01.1323';
-import { initStudent } from './student.js?v=2026-10-01.1323';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1323';
-import { paneLayer, newPaneId, publicPanes } from '../panes.js?v=2026-10-01.1323';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1323';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1323';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1328';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1328';
+import { initSend } from './send.js?v=2026-10-01.1328';
+import { initStudent } from './student.js?v=2026-10-01.1328';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1328';
+import { paneLayer, newPaneId, publicPanes } from '../panes.js?v=2026-10-01.1328';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1328';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1328';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -130,6 +130,7 @@ board.underlay = page => {
   if (btn) btn.hidden = !hasPanes;
   if (!hasPanes && htmlInteract) setInteract(false);
   panes.update(page.panes, board.s, board.pageW, board.pageH, { interact: htmlInteract, borders: board.tool === 'lasso' });
+  renderPaneChips(page);
   // snapshots are for the students only: on this board the live HTML is shown
   return updateImageLayer((page.images || []).filter(i => !i.shot), board.s, board.dpr, board.pageW, board.pageH, board.bg, () => board.request(), hasPanes) || hasPanes;
 };
@@ -420,6 +421,24 @@ async function insertHtml(file) {
   toast(`${file.name} added. 🖱 Interact (or I) to use it; Select (S) to move or resize it and choose what students get.`);
 }
 $('#htmlBtn').addEventListener('click', () => setInteract(!htmlInteract));
+// the switch where the HTML is: a small button just above each pane's top-left corner (outside it,
+// so it never covers the HTML's own controls; inside only when the pane touches the top of the page)
+function renderPaneChips(page) {
+  let layer = document.getElementById('paneChips');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'paneChips';
+    $('#sheet').appendChild(layer);
+    layer.addEventListener('pointerdown', e => {
+      if (!e.target.closest('button')) return;
+      e.preventDefault(); e.stopPropagation();
+      setInteract(!htmlInteract);
+    });
+  }
+  const s = board.s;
+  layer.innerHTML = (page.panes || []).map(p => `<button class="pane-chip${htmlInteract ? ' on' : ''}" style="left:${p.x * s}px;top:${p.y * s >= 34 ? p.y * s - 32 : p.y * s + 4}px"
+    title="${htmlInteract ? 'Back to writing on the page (or pick a pen tool)' : 'Use the HTML: click, drag, type in it (I)'}">${htmlInteract ? '✎ Write' : '🖱 Use'}</button>`).join('');
+}
 // a border shows when the pointer comes near a pane's top-left corner (borders can be transparent)
 $('#boardWrap').addEventListener('pointermove', e => {
   const pns = curPage().panes;
@@ -962,7 +981,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1323');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1328');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {

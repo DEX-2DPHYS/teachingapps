@@ -505,3 +505,11 @@ body.html-interact #overlay, body.html-interact #answers, body.html-interact #ty
 .fig-h.border { left: -13px; bottom: -13px; background: #555; cursor: pointer; }
 .fig-h.mode { left: 18px; top: -13px; width: auto; padding: 0 8px; background: #2e7d32; cursor: pointer; font-size: 12px; }
 .fig-h.mode.snap { background: #6a1b9a; }
+
+/* the Use / Write switch on each HTML pane, and its frame while it is being used */
+#paneChips { position: absolute; inset: 0; pointer-events: none; z-index: 9; }
+.pane-chip { position: absolute; pointer-events: auto; padding: 3px 10px; border-radius: 14px; font: 600 13px system-ui, sans-serif;
+  background: rgba(31,95,209,.92); color: #fff; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; }
+.pane-chip.on { background: #2e7d32; }
+body.html-interact .pane-layer iframe { outline: 3px solid rgba(31,95,209,.8) !important; }
+body.html-interact #paneChips { pointer-events: none; }
