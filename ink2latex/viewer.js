@@ -2,8 +2,8 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.0938';
-import { TextLayer } from './textboxes.js?v=2026-10-01.0938';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.0946';
+import { TextLayer } from './textboxes.js?v=2026-10-01.0946';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -494,8 +494,10 @@ async function saveNotes(no) {
 const nc = $('#notes');
 $('#pageWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
 nc.addEventListener('pointerdown', e => {
+  dbg('down', e);
   if (!noteMode || !notes.has(cur)) return;
   e.preventDefault();
+  if (drawing) endNote({ pointerId: drawing.id }); // the previous stroke's pen-up never arrived: keep it
   try { nc.setPointerCapture(e.pointerId); } catch { /* not capturable (rare on iOS): draw anyway */ }
   const p = notePoint(e);
   if (noteErase || (e.buttons & 32)) { drawing = { id: e.pointerId, erase: true }; if (eraseNotesAt(p)) requestNotes(); }
@@ -511,6 +513,7 @@ nc.addEventListener('pointermove', e => {
   requestNotes();
 });
 const endNote = e => {
+  if (e.type) dbg(e.type === 'pointercancel' ? 'cancel' : 'up', e);
   if (!drawing || e.pointerId !== drawing.id) return;
   if (drawing.stroke) notes.get(cur).strokes.push(drawing.stroke);
   drawing = null;
@@ -521,6 +524,29 @@ const endNote = e => {
 };
 nc.addEventListener('pointerup', endNote);
 nc.addEventListener('pointercancel', endNote);
+// iPad Safari: without this, a quick second pen touch can be taken for part of a double-tap gesture
+// and its pointer events are swallowed (every other stroke missing). Only while writing notes.
+for (const type of ['touchstart', 'touchmove', 'touchend']) {
+  nc.addEventListener(type, e => { if (type === 'touchstart') dbg('touch', e); if (noteMode) e.preventDefault(); }, { passive: false });
+}
+
+// diagnostics (?debug=1 or &debug=1): what the device reports for each touch, in a corner box
+const DEBUG = new URLSearchParams(location.search).has('debug');
+const dbgCount = { down: 0, up: 0, cancel: 0, touch: 0 };
+let dbgLast = '';
+function dbg(kind, e) {
+  if (!DEBUG) return;
+  dbgCount[kind]++;
+  if (kind !== 'touch') dbgLast = `${kind} ${e.pointerType || ''} id ${e.pointerId}${drawing ? ' (stroke open)' : ''}`;
+  let box = $('#dbgBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'dbgBox';
+    box.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:50;background:#000c;color:#fff;font:12px ui-monospace,monospace;padding:6px 8px;border-radius:6px;pointer-events:none;white-space:pre';
+    document.body.appendChild(box);
+  }
+  box.textContent = `down ${dbgCount.down}  up ${dbgCount.up}  cancel ${dbgCount.cancel}  touch ${dbgCount.touch}\nlast: ${dbgLast}\nstrokes on page: ${notes.get(cur)?.strokes.length ?? '-'}`;
+}
 // Typed notes (private), comments and questions (both sent anonymously to the lecturer), per page.
 // Double-click on the page writes one right there: it then has x, y in page units and shows as a pin
 // (the lecturer sees comments as green and questions as red circles at the same place).
