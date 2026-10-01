@@ -1,11 +1,12 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1238';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1238';
-import { initSend } from './send.js?v=2026-10-01.1238';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1238';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1238';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1248';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1248';
+import { initSend } from './send.js?v=2026-10-01.1248';
+import { initStudent } from './student.js?v=2026-10-01.1248';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1248';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1248';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -73,6 +74,7 @@ const saveSettings = () => store.set('ink2latex.settings', settings);
 const newPage = () => ({ uid: crypto.randomUUID(), strokes: [], undo: [], redo: [], blocks: [], interp: null, texts: [], images: [] });
 const state = { pages: [newPage()], cur: 0, photos: [], cost: 0, calls: 0, costBy: {} };
 let send = null; // send mode (send.js), set up at the end
+let student = null; // student mode (student.js): set when the board was opened with ?join=CODE
 let blockSeq = 0, photoSeq = 0;
 const curPage = () => state.pages[state.cur];
 
@@ -793,6 +795,7 @@ function newBlock() {
 // its token); otherwise the cloud (Supabase Edge Function ink2latex-ai) with the 📡 Send login.
 // ?ai=cloud forces the cloud, e.g. to test it from this PC.
 const AI_CLOUD = new URLSearchParams(location.search).get('ai') === 'cloud'
+  || new URLSearchParams(location.search).has('join') || !!settings.studentLecture
   || !(['localhost', '127.0.0.1'].includes(location.hostname) || TOKEN);
 async function aiFetch(method, body) {
   if (!AI_CLOUD) {
@@ -800,13 +803,23 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1238');
-  const token = await send?.accessToken();
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1248');
+  const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
+  let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
+  if (student?.active()) {
+    // a student: their lecture decides what they may use (Settings → Students of the lecturer)
+    token = await student.accessToken();
+    const lec = student.lecture().id;
+    if (method === 'GET') url += `?lecture=${lec}`;
+    else body = JSON.stringify({ ...JSON.parse(body), lecture_id: lec });
+    const own = (() => { try { return localStorage.getItem('ink2latex.ownKey') || ''; } catch { return ''; } })();
+    if (own) headers['x-ai-key'] = own;
+  } else {
+    token = await send?.accessToken();
+  }
   if (!token) throw new Error('Sign in under 📡 Send to use the AI (no local server here)');
-  return fetch(`${SUPABASE_URL}/functions/v1/ink2latex-ai`, {
-    method, body,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: SUPABASE_KEY },
-  });
+  headers.Authorization = `Bearer ${token}`;
+  return fetch(url, { method, body, headers });
 }
 
 async function api(body) {
@@ -2081,6 +2094,7 @@ function saveSoon() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 1500);
   send?.changed();
+  student?.changed();
 }
 function saveNow() {
   if (board.active || performance.now() - (board.lastUp || 0) < 1200) { saveTimer = setTimeout(saveNow, 800); return; }
@@ -2363,7 +2377,9 @@ function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
   const keyName = { claude: 'ANTHROPIC_API_KEY', mistral: 'MISTRAL_API_KEY', openai: 'OPENAI_API_KEY' };
   $('#engineStatus').innerHTML = 'Engines: ' + Object.entries(ENGINES)
     .map(([k, label]) => e[k] ? `${label} ✓` : `${label} <span title="set ${keyName[k]} and restart the server">(no API key)</span>`).join(' · ')
-    + (AI_CLOUD ? ' · in the cloud' : ' · local server');
+    + (AI_CLOUD ? ' · in the cloud' : ' · local server')
+    + (e.student ? '<br>' + studentRulesText(e.student) : '');
+  if (e.student) student?.setRules(e.student);
 }).catch(err => { if (AI_CLOUD) $('#engineStatus').textContent = 'AI in the cloud: ' + err.message; }); }
 checkEngines();
 const autoEl = $('#auto');
@@ -2530,6 +2546,74 @@ send = initSend({ state, settings, saveSettings, pagePayload, orientation: () =>
   boardData: () => serialize(false), switchBoard, fromSentPages, uploadPending: uploadPendingImages, sessionReady,
   sentIndex, realIndex, onLogin: () => { if (AI_CLOUD) checkEngines(); } });
 if (AI_CLOUD) checkEngines(); // now that the login can be read
+
+// ----------------------------------------------------------------------------------- student mode
+// Opened with ?join=CODE (the student app's "✎ My whiteboard"): the student's own board for that
+// lecture (this browser + the cloud, private), the lecturer's tools hidden, AI under the course rules.
+student = initStudent({ settings, saveSettings, boardData: () => serialize(false), toast });
+function studentRulesText(r) {
+  const names = { ink: 'transcription', calc: '= ?', sym: '= ?S', solve: '= ?AI', latex: '∑ LaTeX', coach: 'coach' };
+  const on = Object.entries(r.features || {}).filter(([, v]) => v).map(([k]) => names[k]).filter(Boolean);
+  return `Your lecturer allows: ${on.join(', ') || 'no AI'}${r.pay === 'own' ? ' · with your own key (below)' : ` · up to ${Number(r.daily_limit || 0).toFixed(2)} USD per day`}`;
+}
+async function enterStudentMode() {
+  const lec = student.lecture();
+  document.body.classList.add('student-mode');
+  const chip = document.createElement('span');
+  chip.id = 'studentChip';
+  chip.innerHTML = `🎓 ${esc(lec.course_code)} · ${esc(lec.title)} <button title="Leave: back to the lecturer whiteboard on this device">Leave</button>`;
+  $('#sendBtn').closest('.menu').before(chip);
+  chip.querySelector('button').addEventListener('click', async () => {
+    await student.saveNow();
+    student.leave();
+    await switchBoard(settings.sendLecture?.id || null, {});
+    location.href = location.pathname; // without ?join
+  });
+  try { localStorage.getItem('ink2latex.ownKey') && ($('#ownKey').value = '••••••••'); } catch { /* no storage */ }
+  await sessionReady;
+  // the student's own board for this lecture ('stu:' keeps it apart from any lecturer board)
+  await switchBoard('stu:' + lec.id, { fetchCloud: () => student.loadBoard() });
+  checkEngines();
+  toast(`Your own board for "${lec.title}". It is private and saved automatically.`);
+}
+$('#ownKey').addEventListener('change', e => {
+  const v = e.target.value.trim();
+  try { if (v && !/^•+$/.test(v)) localStorage.setItem('ink2latex.ownKey', v); else if (!v) localStorage.removeItem('ink2latex.ownKey'); } catch { /* no storage */ }
+  e.target.value = v ? '••••••••' : '';
+  toast(v ? 'Key kept in this browser only' : 'Key removed');
+});
+(async () => {
+  const code = new URLSearchParams(location.search).get('join');
+  if (code && code.toUpperCase() !== settings.studentLecture?.code) {
+    try { await student.join(code); } catch (err) { toast('Could not join: ' + (err.message || err)); return; }
+  }
+  if (student.active()) enterStudentMode();
+})();
+
+// Settings → Students (lecturer): the rules for the course of the chosen lecture
+async function loadStudentSettings() {
+  if (student?.active()) return;
+  const lec = settings.sendLecture, form = $('#stuForm');
+  const cs = lec && await send?.courseSettings(lec.course_code).catch(() => null);
+  if (!lec || cs === null) { form.hidden = true; $('#stuCourse').textContent = lec ? 'Sign in under 📡 Send to set the rules for students.' : 'Choose a lecture under 📡 Send first: these rules are per course.'; return; }
+  const r = { features: { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false }, daily_limit: 0.2, pay: 'course', coaching: '', ...(cs || {}) };
+  r.features = { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false, ...(cs?.features || {}) };
+  $('#stuCourse').textContent = `Course ${lec.course_code}: what students may use on their own whiteboards (✎ My whiteboard in the student app).`;
+  form.querySelectorAll('[data-sf]').forEach(cb => { cb.checked = !!r.features[cb.dataset.sf]; });
+  $('#stuPay').value = r.pay; $('#stuLimit').value = r.daily_limit; $('#stuCoach').value = r.coaching || '';
+  form.hidden = false;
+}
+$('#settingsBtn').addEventListener('click', () => { if (!$('#settingsMenu').hidden) loadStudentSettings(); });
+$('#stuSave').addEventListener('click', async () => {
+  const lec = settings.sendLecture;
+  if (!lec) return;
+  const features = {};
+  $('#stuForm').querySelectorAll('[data-sf]').forEach(cb => { features[cb.dataset.sf] = cb.checked; });
+  const data = { features, pay: $('#stuPay').value, daily_limit: Math.max(0, +$('#stuLimit').value || 0), coaching: $('#stuCoach').value.trim() };
+  $('#stuState').textContent = 'saving…';
+  try { await send.saveCourseSettings(lec.course_code, data); $('#stuState').textContent = 'saved'; }
+  catch (err) { $('#stuState').textContent = 'not saved: ' + (err.message || err); }
+});
 
 window.ink2latex = { state, board, regroup, settings, interpretPage, evaluateBlock, questionOf, renderAll, send,
   regionAt, bumpLayout: () => { layoutVer++; } };

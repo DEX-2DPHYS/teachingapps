@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-01.1238';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-01.1248';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -593,6 +593,21 @@ export function initSend(app) {
     return c.storage.from('ink2latex').getPublicUrl(path).data.publicUrl;
   }
 
+  // Settings → Students: the rules for a course (null when not signed in as lecturer)
+  async function courseSettings(code) {
+    if (!S.user) await refreshUser().catch(() => {});
+    if (!S.user) return null;
+    const { data, error } = await (await client()).from('course_settings').select('student_ai').eq('owner', S.user.id).eq('course_code', code).maybeSingle();
+    if (error) throw error;
+    return data?.student_ai || {};
+  }
+  async function saveCourseSettings(code, ai) {
+    if (!S.user) throw new Error('not signed in');
+    const { error } = await (await client()).from('course_settings')
+      .upsert({ owner: S.user.id, course_code: code, student_ai: ai, updated_at: new Date().toISOString() }, { onConflict: 'owner,course_code' });
+    if (error) throw error;
+  }
+
   // the login's token, for the cloud AI (Edge Function); null when not signed in as lecturer
   async function accessToken() {
     if (!S.user) await refreshUser().catch(() => {});
@@ -600,6 +615,6 @@ export function initSend(app) {
     const { data } = await (await client()).auth.getSession();
     return data.session?.access_token || null;
   }
-  return { changed, isLive: () => S.live, push, renderDots: () => renderDots(), accessToken, uploadImage };
+  return { changed, isLive: () => S.live, push, renderDots: () => renderDots(), accessToken, uploadImage, courseSettings, saveCourseSettings };
 }
 

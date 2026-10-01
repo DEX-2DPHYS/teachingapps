@@ -478,3 +478,14 @@ details textarea {
 .pv-act button.on { background: #444; color: #fff; }
 .pv-new { display: flex; align-items: center; justify-content: center; border: 2px dashed var(--line); border-radius: 8px; min-height: 120px; font-size: 15px; color: var(--dim); background: transparent; cursor: pointer; }
 #hiddenBadge { position: absolute; left: 8px; top: 8px; z-index: 8; background: #444; color: #fff; font: 12px system-ui, sans-serif; border-radius: 6px; padding: 3px 9px; pointer-events: none; }
+
+/* student mode: the lecturer's tools are hidden; a chip shows the course */
+body:not(.student-mode) .student-only { display: none !important; }
+body.student-mode .lecturer-only, body.student-mode #sendBtn, body.student-mode #sendMenu, body.student-mode #qBadge { display: none !important; }
+#studentChip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 16px; background: #e8f0fe; color: #1f3f8f; font-size: 13px; white-space: nowrap; }
+body[data-board="black"] #studentChip { background: #22314d; color: #cfe0ff; }
+#studentChip button { padding: 1px 8px; font-size: 12px; }
+#studentsSection .col { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+#studentsSection textarea { width: 100%; font: 13px system-ui, sans-serif; }
+#studentsSection #stuForm { display: flex; flex-direction: column; gap: 5px; }
+#studentsSection #stuForm[hidden] { display: none; }

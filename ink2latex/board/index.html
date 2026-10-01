@@ -6,7 +6,7 @@
 <title>ink2latex</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-01.1238">
+<link rel="stylesheet" href="style.css?v=2026-10-01.1248">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -108,7 +108,25 @@
           <label class="check" title="When the page interpretation finds one expression split over several regions, group them and read them again together. Only the grouping changes, so this is safe for assessment."><input type="checkbox" id="autoMerge"> Group split expressions automatically</label>
           <label class="check" title="Off: context corrections are suggested on the cards (assessment use). On: they are applied, with an 'original' button to go back (whiteboard use)."><input type="checkbox" id="autoAccept"> Apply context corrections automatically</label>
           <label class="check" title="'= □' (an empty box) or '= ?' after an expression: calculated with math.js; '= □ AI' / '= ?AI': worked out by the AI"><input type="checkbox" id="autoEval"> Answer "= □" / "= ?" automatically</label>
+          <label class="row student-only" title="Your lecturer asks students to pay for the AI themselves: your key for the engine you chose above (Claude: sk-ant-…, Mistral, OpenAI). Kept only in this browser and sent with each request; never stored by ink2latex.">Your own key <input type="password" id="ownKey" autocomplete="off" placeholder="paste your API key"></label>
           <div id="engineStatus" class="dim small"></div>
+        </section>
+        <section id="studentsSection" class="lecturer-only">
+          <h4>Students</h4>
+          <div id="stuCourse" class="dim small">Choose a lecture under 📡 Send first: these rules are per course.</div>
+          <div id="stuForm" hidden>
+            <span class="small">What students may use on their own whiteboards:</span>
+            <label class="check"><input type="checkbox" data-sf="ink"> Transcription of their writing</label>
+            <label class="check"><input type="checkbox" data-sf="calc"> Calculating (= ?, = ?N)</label>
+            <label class="check"><input type="checkbox" data-sf="sym"> Symbolic results (= ?S)</label>
+            <label class="check"><input type="checkbox" data-sf="solve"> AI solutions (= ?AI)</label>
+            <label class="check"><input type="checkbox" data-sf="latex"> ∑ LaTeX (typed text to maths)</label>
+            <label class="check" title="Coming: an AI coach that gives feedback following your instructions"><input type="checkbox" data-sf="coach"> Coach (soon)</label>
+            <label class="row">AI paid by <select id="stuPay"><option value="course">the course (your keys)</option><option value="own">each student (own key)</option></select></label>
+            <label class="row" title="When the course pays: the most one student may use per day">Daily limit per student <input type="number" id="stuLimit" min="0" step="0.05" style="width:5em"> USD</label>
+            <label class="col">Coaching instructions (for the coach, soon)<textarea id="stuCoach" rows="3" placeholder="e.g. Never give the answer. Point to the first wrong step and ask a question that leads there."></textarea></label>
+            <div class="row"><button id="stuSave">Save for this course</button> <span id="stuState" class="dim small"></span></div>
+          </div>
         </section>
         <section>
           <h4>Pen</h4>
@@ -181,6 +199,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-01.1238"></script>
+<script type="module" src="app.js?v=2026-10-01.1248"></script>
 </body>
 </html>
