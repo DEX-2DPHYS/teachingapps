@@ -651,6 +651,16 @@ $('#viewMenu').addEventListener('change', e => {
   else { LS.set('ink2latex.viewer.show', { notes: $('#showNotes').checked, questions: $('#showQuestions').checked }); renderNotes(); renderPins(); myText.setHidden(!$('#showNotes').checked); }
 });
 $('#leave').addEventListener('click', leave);
+// the side panel (notes, transcription): hidden or shown by the student; on narrow screens (phone,
+// iPad upright) it starts hidden so the page gets the room
+function setSide(on, remember) {
+  document.body.classList.toggle('side-off', !on);
+  $('#sideBtn').classList.toggle('on', on);
+  if (remember) LS.set('ink2latex.viewer.side', on);
+  if (lecture) render();
+}
+$('#sideBtn').addEventListener('click', () => setSide(document.body.classList.contains('side-off'), true));
+setSide(LS.get('ink2latex.viewer.side') ?? window.innerWidth >= 1100, false);
 let resizeTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => lecture && render(), 150); });
 view = LS.get('ink2latex.viewer.view') || 'ink';

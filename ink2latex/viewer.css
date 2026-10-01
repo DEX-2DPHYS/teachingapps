@@ -127,10 +127,16 @@ body.note-mode #notes { pointer-events: auto; touch-action: none; cursor: crossh
 .item .tag { font-size: 11px; color: var(--dim); margin-left: 6px; }
 .empty { color: var(--dim); font-style: italic; }
 
+/* panel hidden: the page takes the whole width (and height on small screens) */
+body.side-off #side { display: none; }
+body.side-off #pageWrap { max-height: none; flex: 1; }
+#sideBtn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 @media (max-width: 800px) {
   main { flex-direction: column; }
   #pageWrap { flex: none; max-height: 60vh; padding: 6px 0; }
   #side { width: auto; flex: 1; border-left: 0; border-top: 1px solid var(--line); }
+  body.side-off #pageWrap { max-height: none; flex: 1; }
 }
 /* the lecturer's written reply under a question */
 .reply { margin-top: 4px; padding: 4px 6px; border-radius: 6px; background: #eef6ee; color: #1d1d1f; font-size: 14px; }
