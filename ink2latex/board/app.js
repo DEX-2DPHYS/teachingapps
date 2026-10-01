@@ -1,12 +1,12 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1253';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1253';
-import { initSend } from './send.js?v=2026-10-01.1253';
-import { initStudent } from './student.js?v=2026-10-01.1253';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1253';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1253';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1259';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1259';
+import { initSend } from './send.js?v=2026-10-01.1259';
+import { initStudent } from './student.js?v=2026-10-01.1259';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1259';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1259';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -805,7 +805,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1253');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1259');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2550,7 +2550,7 @@ send = initSend({ state, settings, saveSettings, pagePayload, orientation: () =>
 if (AI_CLOUD) checkEngines(); // now that the login can be read
 
 // ----------------------------------------------------------------------------------- student mode
-// Opened with ?join=CODE (the student app's "✎ My whiteboard"): the student's own board for that
+// Opened with ?join=CODE (the student app's "✍ My board"): the student's own board for that
 // lecture (this browser + the cloud, private), the lecturer's tools hidden, AI under the course rules.
 student = initStudent({ settings, saveSettings, boardData: () => serialize(false), toast });
 function studentRulesText(r) {
@@ -2600,7 +2600,7 @@ async function loadStudentSettings() {
   if (!lec || cs === null) { form.hidden = true; $('#stuCourse').textContent = lec ? 'Sign in under 📡 Send to set the rules for students.' : 'Choose a lecture under 📡 Send first: these rules are per course.'; return; }
   const r = { features: { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false }, daily_limit: 0.2, pay: 'course', coaching: '', ...(cs || {}) };
   r.features = { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false, ...(cs?.features || {}) };
-  $('#stuCourse').textContent = `Course ${lec.course_code}: what students may use on their own whiteboards (✎ My whiteboard in the student app).`;
+  $('#stuCourse').textContent = `Course ${lec.course_code}: what students may use on their own whiteboards ("✍ My board" in the student app).`;
   form.querySelectorAll('[data-sf]').forEach(cb => { cb.checked = !!r.features[cb.dataset.sf]; });
   $('#stuPay').value = r.pay; $('#stuLimit').value = r.daily_limit; $('#stuCoach').value = r.coaching || '';
   form.hidden = false;
