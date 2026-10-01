@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1341';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1341';
-import { drawImages } from './figures.js?v=2026-10-01.1341';
-import { initFullscreen } from './fullscreen.js?v=2026-10-01.1341';
-import { paneLayer } from './panes.js?v=2026-10-01.1341';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1416';
+import { TextLayer } from './textboxes.js?v=2026-10-01.1416';
+import { drawImages } from './figures.js?v=2026-10-01.1416';
+import { initFullscreen } from './fullscreen.js?v=2026-10-01.1416';
+import { paneLayer } from './panes.js?v=2026-10-01.1416';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -83,6 +83,7 @@ async function openLecture() {
   show('lecture');
   const code = LS.get('ink2latex.viewer')?.code;
   $('#boardLink').href = `${BOARD_URL}?join=${encodeURIComponent(code || '')}`;
+  $('#asgLink').href = `${BOARD_URL}?join=${encodeURIComponent(code || '')}&asg=1`;
   $('#lecTitle').textContent = lecture.title;
   $('#lecCourse').textContent = lecture.course_code;
   document.title = `${lecture.title} · ink2latex`;

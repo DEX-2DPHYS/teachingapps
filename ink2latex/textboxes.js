@@ -104,6 +104,7 @@ function latexToHtml(s, src) {
 // ----------------------------------------------------------------------------------- styles
 // (in the module, so the whiteboard and the viewer look the same without sharing a stylesheet)
 const CSS = `
+.tx-box.locked .tx-grip, .tx-box.locked .tx-resize { display: none !important; }
 .tx-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; z-index: 6; }
 .tx-layer.active { pointer-events: auto; cursor: text; }
 .tx-layer[hidden] { display: none; }
@@ -202,6 +203,7 @@ export class TextLayer {
       }
       el.style.cssText = this.boxCss(t);
       el.classList.toggle('fixed', !!t.w);
+      el.classList.toggle('locked', !!t.lock);
       if (t !== this.editing) { el.firstChild.innerHTML = sanitize(t.html); fillMath(el.firstChild); }
     }
     for (const [id, el] of this.els) if (!seen.has(id)) { el.remove(); this.els.delete(id); }
@@ -219,11 +221,12 @@ export class TextLayer {
       const box = e.target.closest('.tx-box');
       if (e.target.closest('.tx-grip')) { this.drag(e, box, 'move'); return; }
       if (e.target.closest('.tx-resize')) { this.drag(e, box, 'width'); return; }
-      if (box) {
-        const t = this.texts.find(x => x.id === box.dataset.id);
-        if (t && t !== this.editing) { this.finish(); this.edit(t, false); }
+      const t = box && this.texts.find(x => x.id === box.dataset.id);
+      if (t && !t.lock) {
+        if (t !== this.editing) { this.finish(); this.edit(t, false); }
         return; // the click places the caret
       }
+      // a locked box (an assignment's task, a hand-in under review) is like an empty spot: a new box
       e.preventDefault();
       if (this.editing) { this.finish(); return; } // a click elsewhere ends the editing
       const r = this.el.getBoundingClientRect();

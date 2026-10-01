@@ -1,14 +1,15 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1341';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1341';
-import { initSend } from './send.js?v=2026-10-01.1341';
-import { initStudent } from './student.js?v=2026-10-01.1341';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1341';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-01.1341';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1341';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1341';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1416';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1416';
+import { initSend } from './send.js?v=2026-10-01.1416';
+import { initStudent } from './student.js?v=2026-10-01.1416';
+import { initAssign } from './assign.js?v=2026-10-01.1416';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1416';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-01.1416';
+import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1416';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1416';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -77,6 +78,7 @@ const newPage = () => ({ uid: crypto.randomUUID(), strokes: [], undo: [], redo: 
 const state = { pages: [newPage()], cur: 0, photos: [], cost: 0, calls: 0, costBy: {} };
 let send = null; // send mode (send.js), set up at the end
 let student = null; // student mode (student.js): set when the board was opened with ?join=CODE
+let assign = null; // assignments (assign.js)
 let blockSeq = 0, photoSeq = 0;
 const curPage = () => state.pages[state.cur];
 
@@ -121,7 +123,7 @@ bgCanvas.id = 'imageLayer';
 $('#board').before(bgCanvas);
 const updateImageLayer = imageLayer(bgCanvas);
 // HTML panes: between the slide and the ink (lecturer: may run with full access: it is their own file)
-const panes = paneLayer($('#sheet'), { sandbox: 'allow-scripts allow-same-origin allow-forms allow-popups', before: $('#board') });
+const panes = paneLayer($('#sheet'), { sandbox: new URLSearchParams(location.search).has('join') || settings.studentLecture ? 'allow-scripts' : 'allow-scripts allow-same-origin allow-forms allow-popups', before: $('#board') });
 let htmlInteract = false;
 board.underlay = page => {
   const hasPanes = !!page.panes?.length;
@@ -258,7 +260,7 @@ function renderFigHandles() {
   let layer = $('#figLayer');
   if (!layer) { layer = document.createElement('div'); layer.id = 'figLayer'; $('#sheet').appendChild(layer); }
   const page = curPage(), s = board.s;
-  const imgs = (page.images || []).filter(i => !i.shot), pns = page.panes || [];
+  const imgs = (page.images || []).filter(i => !i.shot && !i.lock), pns = page.panes || [];
   if (board.tool !== 'lasso' || !(imgs.length + pns.length)) { layer.innerHTML = ''; return; }
   const box = (o, kind, inner) => `<div class="fig-box${o.bg ? ' bg' : ''}${kind === 'pane' ? ' pane' : ''}" data-id="${o.id}" data-kind="${kind}" style="left:${o.x * s}px;top:${o.y * s}px;width:${o.w * s}px;height:${o.h * s}px">${inner}</div>`;
   layer.innerHTML = imgs.map(im => box(im, 'img', `
@@ -378,7 +380,7 @@ function deletePages(all) {
 function clearPages({ images, writing, all }) {
   const targets = all ? state.pages : [curPage()];
   for (const p of targets) {
-    if (images) { p.images = []; p.panes = []; }
+    if (images) { p.images = (p.images || []).filter(i => i.lock); p.panes = []; } // locked: an assignment's task, a hand-in
     if (writing) {
       if (p === curPage()) board.clear(); // undoable with Ctrl+Z
       else { p.strokes = []; p.undo = []; p.redo = []; }
@@ -872,7 +874,7 @@ function refreshBlocks(page) {
       Object.assign(b, { status: 'ok', result: { kind: 'empty', latex: '', text: '', uncertain: [] }, model: null, ms: 0, edit: null });
       continue;
     }
-    if (settings.auto) transcribe(b, settings.liveModel);
+    if (settings.auto && !assign?.quiet()) transcribe(b, settings.liveModel); // not on feedback
     else b.status = 'stale';
   }
   renderAll();
@@ -999,7 +1001,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1341');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1416');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1330,7 +1332,7 @@ const interpSig = page => page.strokes.map(s => s.id).join(',') + '|' + page.blo
 
 function scheduleInterpret() {
   clearTimeout(interpTimer);
-  if (!settings.autoInterp) return;
+  if (!settings.autoInterp || assign?.quiet()) return;
   interpTimer = setTimeout(() => {
     const page = curPage();
     if (board.active || interpBusy || page.blocks.some(b => b.status === 'busy') || regroupPending()) { scheduleInterpret(); return; }
@@ -2325,7 +2327,31 @@ async function switchBoard(id, { keep = false, fetchCloud = null } = {}) {
     restore(next || { app: 'ink2latex', coords: 'page', orientation: settings.orientation, pages: [] });
   }
   saveNow();
+  assign?.sync();
   return true;
+}
+
+// A page with its ink turned into a picture (transparent PNG, twice the page size) over its slides
+// and figures, and its text boxes locked: how an assignment gives a task (students write on top but
+// cannot erase it) and how a hand-in is shown for review. p: a page on the board or a saved one.
+// online: upload the picture (lecturer; else it stays a data: URL); theme: the colours of the ink.
+async function flattenPage(p, { online = false, theme = settings.board, orientation = settings.orientation } = {}) {
+  const [W, H] = PAGE[orientation] || PAGE.portrait;
+  const q = copyPage({ blocks: [], texts: [], images: [], panes: [], ...p, strokes: [] });
+  q.blocks = []; q.interp = null; q.hidden = false;
+  q.texts = q.texts.map(t => ({ ...t, lock: true }));
+  if (p.strokes?.length) {
+    const k = 2, c = document.createElement('canvas');
+    c.width = W * k; c.height = H * k;
+    const g = c.getContext('2d');
+    g.setTransform(k, 0, 0, k, 0, 0);
+    const pal = (THEMES[theme] || THEMES.white).palette;
+    for (const s of p.strokes) { g.fillStyle = pal[s.color] || s.color || pal.auto; g.fill(strokePath({ ...s, _path: null })); }
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const src = (online && await upload(blob)) || await blobToDataUrl(blob);
+    q.images.push({ id: newImageId(), src, x: 0, y: 0, w: W, h: H, lock: true });
+  }
+  return q;
 }
 // A board rebuilt from the pages that were sent to the students (when there is no full copy): ink,
 // regions and their transcriptions come back; answers and interpretations are worked out again.
@@ -2763,6 +2789,9 @@ if (AI_CLOUD) checkEngines(); // now that the login can be read
 // Opened with ?join=CODE (the student app's "✍ My board"): the student's own board for that
 // lecture (this browser + the cloud, private), the lecturer's tools hidden, AI under the course rules.
 student = initStudent({ settings, saveSettings, boardData: () => serialize(false), toast });
+assign = initAssign({ settings, saveSettings, state, boardData: () => serialize(false), switchBoard, flattenPage, toast, send, student,
+  uploadPending: uploadPendingImages, saveNow });
+sessionReady.then(() => { if (!student.active()) assign.sync(); }); // a hand-in under review: its bar
 function studentRulesText(r) {
   const names = { ink: 'transcription', calc: '= ?', sym: '= ?S', solve: '= ?AI', latex: '∑ LaTeX', coach: 'coach' };
   const on = Object.entries(r.features || {}).filter(([, v]) => v).map(([k]) => names[k]).filter(Boolean);
@@ -2786,7 +2815,10 @@ async function enterStudentMode() {
   try { localStorage.getItem('ink2latex.ownKey') && ($('#ownKey').value = '••••••••'); } catch { /* no storage */ }
   await sessionReady;
   // the student's own board for this lecture ('stu:' keeps it apart from any lecturer board)
-  await switchBoard('stu:' + lec.id, { fetchCloud: () => student.loadBoard() });
+  if (assign.isBoard(settings.boardLecture) && assign.ctx()) assign.sync(); // an assignment / feedback board: stay there
+  else await switchBoard('stu:' + lec.id, { fetchCloud: () => student.loadBoard() });
+  assign.refreshBadge();
+  if (new URLSearchParams(location.search).has('asg')) assign.openDialog();
   checkEngines();
   toast(`Your own board for "${lec.title}". It is private and saved automatically.`);
 }
@@ -2836,5 +2868,5 @@ $('#stuSave').addEventListener('click', async () => {
   catch (err) { $('#stuState').textContent = 'not saved: ' + (err.message || err); }
 });
 
-window.ink2latex = { state, board, regroup, settings, interpretPage, evaluateBlock, questionOf, renderAll, send,
+window.ink2latex = { state, board, regroup, settings, interpretPage, evaluateBlock, questionOf, renderAll, send, assign, flattenPage,
   regionAt, bumpLayout: () => { layoutVer++; } };

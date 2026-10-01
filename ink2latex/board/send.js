@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-01.1341';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-01.1416';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -194,15 +194,16 @@ export function initSend(app) {
   // ---- cloud copy of the board (table ink2latex.boards, only the lecturer can read it): the whole
   // board, saved ~30 s after changes while a lecture is chosen and you are signed in
   let backupTimer = 0;
+  const isLectureId = id => /^[0-9a-f-]{36}$/i.test(id || ''); // not an assignment / review board
   function backupSoon() {
-    if (!S.user || !app.settings.boardLecture) return;
+    if (!S.user || !isLectureId(app.settings.boardLecture)) return;
     clearTimeout(backupTimer);
     backupTimer = setTimeout(backupNow, 30000);
   }
   async function backupNow() {
     clearTimeout(backupTimer);
     const id = app.settings.boardLecture;
-    if (!S.user || !id) return;
+    if (!S.user || !isLectureId(id)) return;
     try {
       const c = await client();
       const { error } = await c.from('boards').upsert({ lecture_id: id, data: app.boardData(), updated_at: new Date().toISOString() }, { onConflict: 'lecture_id' });
@@ -249,6 +250,7 @@ export function initSend(app) {
 
   async function push() {
     if (!S.live || !S.lecture) return;
+    if (app.settings.boardLecture !== S.lecture.id) return; // another board on screen (a hand-in): paused
     if (S.busy) { changed(); return; }
     S.busy = true;
     try {
@@ -627,6 +629,11 @@ export function initSend(app) {
     const { data } = await (await client()).auth.getSession();
     return data.session?.access_token || null;
   }
-  return { changed, isLive: () => S.live, push, renderDots: () => renderDots(), accessToken, uploadImage, uploadText, courseSettings, saveCourseSettings };
+  // the database client while signed in as lecturer (assignments), else null
+  async function db() {
+    if (!S.user) await refreshUser().catch(() => {});
+    return S.user ? client() : null;
+  }
+  return { db, cloudBoard, changed, isLive: () => S.live, push, renderDots: () => renderDots(), accessToken, uploadImage, uploadText, courseSettings, saveCourseSettings };
 }
 
