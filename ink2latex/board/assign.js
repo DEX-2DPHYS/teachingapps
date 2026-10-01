@@ -277,6 +277,7 @@ export function initAssign(app) {
       await app.student.saveNow();
       close();
       app.toast(`Handed in: version ${row.version}. You can keep working and hand in again.`);
+      refreshBadge(); // this one no longer counts as waiting
     } catch (err) {
       btn.disabled = false; btn.textContent = '📤 Transmit';
       app.toast('Not handed in: ' + (/row-level|policy/i.test(err.message || '') ? 'the assignment is closed for hand-ins' : err.message || err));

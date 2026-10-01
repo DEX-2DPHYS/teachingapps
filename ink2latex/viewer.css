@@ -176,3 +176,7 @@ a.btn { display: inline-flex; align-items: center; gap: 2px; font: inherit; colo
 a.btn:hover { background: var(--btn-hover); }
 
 #imgs { position: absolute; left: 0; top: 0; pointer-events: none; }
+
+/* the hint when the pen writes while My notes is off */
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(31,95,209,0); } 30% { box-shadow: 0 0 0 6px rgba(31,95,209,.45); } }
+#noteMode.pulse { animation: pulse .9s ease-out 2; }

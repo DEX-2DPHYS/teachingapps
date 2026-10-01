@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-01.1456';
+import { recognize } from './shapes.js?v=2026-10-02.0003';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -121,12 +121,12 @@ export function renderCrop(strokes, maxDim = 1024, labels = [], area = null) {
 }
 
 // Full page image for printing (always dark ink on white)
-export function renderPageImage(strokes, pageW, pageH, palette, scale = 2) {
+// transparent: no white background (to lay the ink over a slide)
+export function renderPageImage(strokes, pageW, pageH, palette, scale = 2, transparent = false) {
   const c = document.createElement('canvas');
   c.width = pageW * scale; c.height = pageH * scale;
   const g = c.getContext('2d');
-  g.fillStyle = '#fff';
-  g.fillRect(0, 0, c.width, c.height);
+  if (!transparent) { g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); }
   g.setTransform(scale, 0, 0, scale, 0, 0);
   for (const s of strokes) { g.fillStyle = palette[s.color] || s.color; g.fill(strokePath(s)); }
   return c.toDataURL('image/png');

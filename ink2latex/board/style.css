@@ -335,6 +335,15 @@ details textarea {
   body > *:not(#printArea) { display: none !important; }
   #printArea { display: block; }
   #printArea .ink { width: 100%; display: block; page-break-after: always; break-after: page; }
+  /* a page as it looks: slides, ink, typed text, answers (buildPrint) */
+  #printArea .pp { position: relative; overflow: hidden; border: 0.5pt solid #bbb; page-break-after: always; break-after: page; }
+  #printArea .pp-in { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #fff; }
+  #printArea .pp-img, #printArea .pp-ink { position: absolute; }
+  #printArea .pp-ink { left: 0; top: 0; width: 100%; height: 100%; }
+  #printArea .pp-pane { position: absolute; border: 2px dashed #1f5fd1; color: #1f5fd1; font: 600 28px system-ui, sans-serif; padding: 12px; box-sizing: border-box; }
+  #printArea .pp-tx { position: absolute; white-space: pre-wrap; line-height: 1.25; }
+  #printArea .pp-ans.calc { color: #2e7d32; }
+  #printArea .pp-ans.ai { color: #1f5fd1; }
   #printArea .tx { page-break-after: always; break-after: page; font-size: 12pt; }
   #printArea .tx h2 { font-size: 14pt; margin: 0 0 8pt; }
   #printArea .tx .item { margin: 6pt 0; break-inside: avoid; }

@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-01.1456';
-import { TextLayer } from './textboxes.js?v=2026-10-01.1456';
-import { drawImages } from './figures.js?v=2026-10-01.1456';
-import { initFullscreen } from './fullscreen.js?v=2026-10-01.1456';
-import { paneLayer } from './panes.js?v=2026-10-01.1456';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-02.0003';
+import { TextLayer } from './textboxes.js?v=2026-10-02.0003';
+import { drawImages } from './figures.js?v=2026-10-02.0003';
+import { initFullscreen } from './fullscreen.js?v=2026-10-02.0003';
+import { paneLayer } from './panes.js?v=2026-10-02.0003';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -743,11 +743,37 @@ $('#placeForm').addEventListener('submit', async e => {
   try { await addMine(raw, kind, x, y); }
   catch (err) { setNoteStatus(KIND[kind].fail + (err.message || err)); }
 });
-// own double-tap detection: works the same for mouse, pen and finger (phones do not all send dblclick)
+// the pen dragged over the page while My notes is off: say how to write (once the stroke is clearly
+// a stroke, not a tap or a double-tap)
+// (letters are short strokes: the distance adds up over strokes that follow each other quickly)
+let penTry = null, press = null;
+$('#sheet').addEventListener('pointerdown', e => {
+  press = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 };
+  if (noteMode || textMode || e.pointerType !== 'pen') { penTry = null; return; }
+  if (!penTry || performance.now() - penTry.t > 1500) penTry = { d: 0 };
+  Object.assign(penTry, { x: e.clientX, y: e.clientY, t: performance.now() });
+});
+$('#sheet').addEventListener('pointermove', e => {
+  if (!(e.buttons & 1)) return;
+  if (press) press.moved = Math.max(press.moved, Math.hypot(e.clientX - press.x, e.clientY - press.y));
+  if (!penTry) return;
+  penTry.d += Math.hypot(e.clientX - penTry.x, e.clientY - penTry.y);
+  Object.assign(penTry, { x: e.clientX, y: e.clientY, t: performance.now() });
+  if (penTry.d > 80) {
+    penTry = null;
+    lastTap = null;
+    setNoteStatus('To write on the page, switch on ✎ My notes');
+    const b = $('#noteMode');
+    b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse');
+  }
+});
+// own double-tap detection: works the same for mouse, pen and finger (phones do not all send dblclick).
+// A tap is a short press that hardly moves: the end of a pen stroke is not a tap.
 let lastTap = null;
 $('#sheet').addEventListener('pointerup', e => {
   if (noteMode || textMode || e.target.closest('.pin')) return;
   const now = performance.now();
+  if (!press || press.moved > 12 || now - press.t > 350) { lastTap = null; return; }
   if (lastTap && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
     lastTap = null;
     openPlace(e.clientX, e.clientY);

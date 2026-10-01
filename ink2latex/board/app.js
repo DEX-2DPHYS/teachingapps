@@ -1,15 +1,15 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-01.1456';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-01.1456';
-import { initSend } from './send.js?v=2026-10-01.1456';
-import { initStudent } from './student.js?v=2026-10-01.1456';
-import { initAssign } from './assign.js?v=2026-10-01.1456';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-01.1456';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-01.1456';
-import { TextLayer, plainText } from '../textboxes.js?v=2026-10-01.1456';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-01.1456';
+import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-02.0003';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-02.0003';
+import { initSend } from './send.js?v=2026-10-02.0003';
+import { initStudent } from './student.js?v=2026-10-02.0003';
+import { initAssign } from './assign.js?v=2026-10-02.0003';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-02.0003';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-02.0003';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-02.0003';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-02.0003';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -20,6 +20,7 @@ const MODELS = {
 };
 const ENGINES = { claude: 'Claude', mistral: 'Mistral', openai: 'ChatGPT' };
 const engineOf = k => String(k).startsWith('mistral') ? 'mistral' : String(k).startsWith('gpt') ? 'openai' : 'claude';
+const heavyName = () => MODELS[heavyModel()] || 'The AI'; // the model "= ?AI" and figures use (after the final model's engine)
 const isMistral = k => engineOf(k) === 'mistral';
 // figures and "= ?AI" use the heavy model of the final model's engine (with more reasoning)
 const heavyModel = () => ({ mistral: 'mistral-medium', openai: 'gpt-sol', claude: 'opus' })[engineOf(settings.finalModel)];
@@ -1001,7 +1002,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-01.1456');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-02.0003');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1104,16 +1105,19 @@ function questionOf(b) {
     // only an EMPTY box is an answer box (\boxed{x=5} is a boxed result, not a question)
     .replace(/\\(boxed|fbox|framebox)\{(\s|~|\\[,;: ]|\\q?quad|\\phantom\{[^{}]*\}|\\hspace\{[^{}]*\})*\}|\\(square|Box)\b|\[\s*\]|□|▢|☐|⬜/g, '□')
     .replace(/\\q?quad|\\phantom\{[^{}]*\}/g, ' ')
+    // multi-line layouts: "\begin{aligned} N &= … \\ &= ? \end{aligned}" asks the same as "N = … = ?"
+    .replace(/\\(begin|end)\{(aligned|align\*?|gathered|split|array)\}(\{[^{}]*\})?|\\\\|&/g, ' ')
     .replace(/\\[,;:! ]|\\(right|left)[.)]?/g, ' ')
     .replace(/\s+/g, '')
     .replace(/[.,;]+$/, '');
   if (!src.includes('=')) return null;
-  if (/=(\?+|□)A\.?I\.?$/i.test(src)) return 'ai';
+  // the marker: "?", "???", "□", or both ("□?", "?□": models sometimes write the box and the question mark)
+  if (/=(\?+□?|□\?*)A\.?I\.?$/i.test(src)) return 'ai';
   // "= ?N" / "= □ N": a number; "= ?S" / "= □ S": a symbolic result (capital letters only, so a
   // variable n or s after the "?" is not taken for the choice)
-  if (/=(\?+|□)N$/.test(src)) return 'num';
-  if (/=(\?+|□)S$/.test(src)) return 'sym';
-  if (/=(\?+|□)$/.test(src)) return 'calc';
+  if (/=(\?+□?|□\?*)N$/.test(src)) return 'num';
+  if (/=(\?+□?|□\?*)S$/.test(src)) return 'sym';
+  if (/=(\?+□?|□\?*)$/.test(src)) return 'calc';
   // the drawn box itself: "=" and an empty rectangle in the region, whatever the transcription made of it
   if (answerBoxOf(b, pageOf(b))) return /A\.?I\.?$/i.test(src) ? 'ai' : /N$/.test(src) ? 'num' : /S$/.test(src) ? 'sym' : 'calc';
   return null;
@@ -1139,7 +1143,7 @@ async function evaluateBlock(b, mode = questionOf(b) || 'calc', explicit = false
       : { task: 'evaluate', model: settings.finalModel, expr, context: contextFor(b, page), force: { num: 'numeric', sym: 'symbolic' }[mode] };
     const r = await api(body);
     if (b.ansVersion !== ver) return;
-    b.answer = { status: 'ok', mode, expr, data: r.data, ms: r.ms, explicit };
+    b.answer = { status: 'ok', mode, expr, data: r.data, ms: r.ms, explicit, model: body.model };
   } catch (err) {
     if (b.ansVersion !== ver) return;
     b.answer = { status: 'error', mode, expr, error: err.message, explicit };
@@ -1152,10 +1156,10 @@ async function evaluateBlock(b, mode = questionOf(b) || 'calc', explicit = false
 function answerValue(b) {
   const a = b.answer;
   if (!a || (!a.explicit && !questionOf(b))) return null;
-  if (a.status === 'busy') return { latex: null, label: a.mode === 'ai' ? 'Opus is working it out…' : 'calculating…', cls: 'busy' };
+  if (a.status === 'busy') return { latex: null, label: a.mode === 'ai' ? `${heavyName()} is working it out…` : 'calculating…', cls: 'busy' };
   if (a.status === 'error') return { latex: null, label: a.error, cls: 'err' };
   const d = a.data;
-  if (a.mode === 'ai') return { latex: d.answer_latex, label: 'AI answer (Opus 5.5): check', cls: 'ai' };
+  if (a.mode === 'ai') return { latex: d.answer_latex, label: `AI answer (${MODELS[a.model] || heavyName()}): check`, cls: 'ai' };
   if (d.kind === 'numeric' && d.computed && !d.computed.error) {
     return { latex: d.computed.latex, label: 'calculated with math.js', cls: 'calc' };
   }
@@ -1702,8 +1706,8 @@ function blockContentHtml(b) {
   else if (r.kind === 'text' || r.kind === 'mixed') html = renderMixed(b.edit ?? r.text);
   else if (r.kind === 'figure') html = `<span class="muted">Figure: ${renderMixed(b.edit ?? r.text)}</span>`;
   else html = '<span class="muted">(nothing legible)</span>';
-  if (b.figure) html += `<div class="fig-cap">Redrawn figure (Opus 5.5)</div><img class="fig" alt="redrawn figure" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(b.figure.svg)}">`;
-  if (b.figureBusy) html += '<div class="muted">Opus is redrawing the figure…</div>';
+  if (b.figure) html += `<div class="fig-cap">Redrawn figure (${esc(MODELS[b.figure.model] || heavyName())})</div><img class="fig" alt="redrawn figure" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(b.figure.svg)}">`;
+  if (b.figureBusy) html += `<div class="muted">${heavyName()} is redrawing the figure…</div>`;
   if (b.figureError) html += `<div class="error-msg">${esc(b.figureError)}</div>`;
   return html;
 }
@@ -1754,12 +1758,12 @@ function fillCard(el, b, num) {
       ${isMath ? '<button data-act="word" title="Copy as MathML: paste into Word as a native equation">Word</button>' : ''}
       ${r && !isMath && r.kind !== 'empty' ? '<button data-act="text" title="Copy text">Copy</button>' : ''}
       ${r && (isMath || questionOf(b)) ? `<button data-act="calc" title="Calculate with math.js, using values from the page (same as writing = ?)">= ?</button>
-        <button data-act="solveai" title="Let Opus 5.5 work it out, with steps (same as writing = ?AI)">= ?AI</button>` : ''}
+        <button data-act="solveai" title="Let ${heavyName()} work it out, with steps (same as writing = ?AI)">= ?AI</button>` : ''}
       ${b.answer ? '<button data-act="noans" title="Remove the answer">✕ Answer</button>' : ''}
       ${num > 1 ? `<button data-act="mergeprev" title="Group this region with region ${num - 1}: read as one equation, pieces stay movable">⇡ Group with ${num - 1}</button>` : ''}
       ${canUngroup(b) ? '<button data-act="ungroup" title="Split into its pieces again, each read on its own (Ctrl+Shift+G)">Ungroup</button>' : ''}
       ${r && r.kind === 'figure' ? '<button data-act="straighten" title="Straighten axes and lines, clean arrowheads, smooth curves - on the page itself (undo with Ctrl+Z)">Straighten</button>' : ''}
-      ${r && r.kind === 'figure' && !b.figure ? `<button data-act="figure" title="Opus 5.5 redraws the sketch as a clean vector figure (SVG + TikZ), shown below the description" ${b.figureBusy ? 'disabled' : ''}>Redraw as figure</button>` : ''}
+      ${r && r.kind === 'figure' && !b.figure ? `<button data-act="figure" title="${heavyName()} redraws the sketch as a clean vector figure (SVG + TikZ), shown below the description" ${b.figureBusy ? 'disabled' : ''}>Redraw as figure</button>` : ''}
       ${b.figure ? '<button data-act="svg">SVG ↓</button><button data-act="tikz">TikZ</button><button data-act="nofig" title="Remove the redrawn figure from this card">✕ Figure</button>' : ''}
     </div>`;
 }
@@ -2190,10 +2194,16 @@ function blockMarkdown(b) {
   return r.kind === 'empty' ? '' : sourceOf(b) + note;
 }
 
+// typed text boxes, top to bottom; plainText writes typeset maths as $...$
+const typedTexts = pg => (pg.texts || []).filter(t => plainText(t.html).trim()).sort((a, c) => a.y - c.y || a.x - c.x).map(t => plainText(t.html));
+// LaTeX: escape the text, keep the $...$ maths as it is
+const TEX_ESC = { '\\': '\\textbackslash{}', '~': '\\textasciitilde{}', '^': '\\textasciicircum{}', 'µ': '\\textmu{}' };
+const texText = str => str.split(/(\$[^$]*\$)/)
+  .map((p, i) => (i % 2 ? p : p.replace(/[\\&%#_{}~^µ]/g, c => TEX_ESC[c] || '\\' + c))).join('').replace(/\n/g, '\\\\\n');
 function allLatex() {
   const out = [];
   state.pages.forEach((pg, i) => {
-    const parts = sortedBlocks(pg).map(({ b }) => blockLatex(b)).filter(Boolean);
+    const parts = [...sortedBlocks(pg).map(({ b }) => blockLatex(b)), ...typedTexts(pg).map(t => `% typed\n${texText(t)}`)].filter(Boolean);
     if (parts.length) out.push(`% ---- page ${i + 1} ----\n\n` + parts.join('\n\n'));
   });
   state.photos.slice().reverse().forEach((p, i) => { if (p.result) out.push(`% ---- photo ${i + 1} ----\n\n` + photoLatex(p)); });
@@ -2203,7 +2213,7 @@ function allLatex() {
 function allMarkdown() {
   const out = [];
   state.pages.forEach((pg, i) => {
-    const parts = sortedBlocks(pg).map(({ b }) => blockMarkdown(b)).filter(Boolean);
+    const parts = [...sortedBlocks(pg).map(({ b }) => blockMarkdown(b)), ...typedTexts(pg).map(t => `> ${t.replace(/\n/g, '\n> ')}`)].filter(Boolean);
     if (parts.length) out.push(`## Page ${i + 1}\n\n` + parts.join('\n\n'));
     if (pg.interp?.data) out.push(`### Page ${i + 1} - interpretation\n\n${pg.interp.data.document}`);
   });
@@ -2216,13 +2226,51 @@ function allMarkdown() {
 }
 
 // print: each page as an ink image on its own sheet, followed by its transcription
+// the answers of a page ("= ?" results), with their place in page units, as renderAnswers puts
+// them on the board: inside a drawn answer box, or after the last part of the question
+function answerSpots(p) {
+  const out = [];
+  for (const b of p.blocks || []) {
+    try {
+      const v = answerValue(b);
+      if (!v?.latex || v.cls === 'err') continue;
+      const parts = partsOf(b, p);
+      if (!parts.length) continue;
+      const box = parts[parts.length - 1].box, abox = answerBoxOf(b, p);
+      if (abox) {
+        const size = Math.max(18, Math.min(56, (abox.y1 - abox.y0) * 0.5));
+        out.push({ latex: v.latex, cls: v.cls, size, x: abox.x0 + 8, y: abox.y0 + ((abox.y1 - abox.y0) - size * 1.25) / 2 });
+      } else {
+        const h = box.y1 - box.y0, size = Math.max(20, Math.min(60, h * 0.6));
+        out.push({ latex: v.latex, cls: v.cls, size, x: box.x1 + 10, y: box.y0 + (h - size * 1.25) / 2 });
+      }
+    } catch { /* a block of a saved page that cannot be placed: leave it out */ }
+  }
+  return out;
+}
+
+// Print / PDF: every page as it looks (slides and figures, ink, typed text, answers), scaled to the
+// paper, followed by its transcription. Built again before each print.
+function printPageHtml(pg, W, H, k) {
+  const pct = (v, of) => (100 * v / of).toFixed(3) + '%';
+  const imgs = (pg.images || []).filter(im => !im.shot && /^(https:|data:image\/)/.test(im.src))
+    .sort((a, b) => (b.bg ? 1 : 0) - (a.bg ? 1 : 0))
+    .map(im => `<img class="pp-img" src="${esc(im.src)}" style="left:${pct(im.x, W)};top:${pct(im.y, H)};width:${pct(im.w, W)};height:${pct(im.h, H)}" alt="">`).join('');
+  const panes = (pg.panes || []).map(pn => `<div class="pp-pane" style="left:${pct(pn.x, W)};top:${pct(pn.y, H)};width:${pct(pn.w, W)};height:${pct(pn.h, H)}">HTML: ${esc(pn.name || 'interactive page')}</div>`).join('');
+  const ink = pg.strokes.length ? `<img class="pp-ink" src="${renderPageImage(pg.strokes, W, H, THEMES.white.palette, 2, true)}" alt="">` : '';
+  const texts = (pg.texts || []).map(t => `<div class="pp-tx" style="${esc(textLayer.boxCss({ ...t, color: t.color === 'auto' ? '#1b1b1b' : t.color }))}">${sanitize(t.html)}</div>`).join('');
+  const answers = answerSpots(pg).map(a => `<div class="pp-tx pp-ans ${a.cls}" style="left:${a.x}px;top:${a.y}px;font-size:${a.size}px"><span class="tx-math" data-tex="${esc(a.latex)}"></span></div>`).join('');
+  return `<div class="pp" style="height:${(H * k).toFixed(1)}px;width:${(W * k).toFixed(1)}px"><div class="pp-in" style="width:${W}px;height:${H}px;transform:scale(${k})">${imgs}${panes}${ink}<div class="pp-texts">${texts}${answers}</div></div></div>`;
+}
 function buildPrint() {
   const area = $('#printArea');
   const [W, H] = PAGE[settings.orientation];
+  // the printable width of A4 at 96 px/inch with ~1 cm margins: 277 mm landscape, 190 mm portrait
+  const k = (settings.orientation === 'portrait' ? 718 : 1047) / W;
   const parts = [];
   state.pages.forEach((pg, i) => {
-    if (!pg.strokes.length) return;
-    parts.push(`<img class="ink" src="${renderPageImage(pg.strokes, W, H, THEMES.white.palette)}" alt="page ${i + 1}">`);
+    if (!pg.strokes.length && !(pg.images || []).length && !(pg.texts || []).length) return;
+    parts.push(printPageHtml(pg, W, H, k));
     const items = sortedBlocks(pg).map(({ b }, k) => b.result && b.result.kind !== 'empty'
       ? `<div class="item"><span class="num">(${k + 1})</span> ${blockContentHtml(b)}${answerHtml(b, false)}${b.comment ? `<div class="num">Note: ${esc(b.comment)}</div>` : ''}</div>` : '').join('');
     const doc = pg.interp?.data ? `<h2>Page ${i + 1}: interpretation</h2><div class="item">${renderDoc(pg.interp.data.document)}</div>` : '';
@@ -2230,9 +2278,18 @@ function buildPrint() {
   });
   // landscape and 16:9 pages print on landscape paper
   const paper = settings.orientation === 'portrait' ? 'portrait' : 'landscape';
-  area.innerHTML = `<style>@page { size: A4 ${paper}; }</style>` + parts.join('');
+  area.innerHTML = `<style>@page { size: A4 ${paper}; margin: 10mm; }</style>` + parts.join('');
+  fillMath(area);
+  printBuilt = performance.now();
 }
-window.addEventListener('beforeprint', buildPrint);
+let printBuilt = 0;
+// the Print button: build, wait until the slides and figures have loaded, then print
+async function printNow() {
+  buildPrint();
+  await Promise.all([...$('#printArea').querySelectorAll('img')].map(im => im.decode().catch(() => {})));
+  window.print();
+}
+window.addEventListener('beforeprint', () => { if (performance.now() - printBuilt > 2000) buildPrint(); }); // Ctrl+P / the browser's menu
 
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
@@ -2341,6 +2398,10 @@ async function flattenPage(p, { online = false, theme = settings.board, orientat
   q.blocks = []; q.interp = null; q.hidden = false;
   q.texts = q.texts.map(t => ({ ...t, lock: true }));
   q.images = q.images.map(im => ({ ...im, lock: true })); // slides and figures stay too (no handles, not cleared)
+  // the answers ("= ?" results) are drawn by the board from the regions, which do not survive: keep them as text
+  for (const a of answerSpots(p)) {
+    q.texts.push({ id: 't' + newImageId(), x: Math.round(a.x), y: Math.round(a.y), w: null, font: 'serif', size: Math.round(a.size), color: a.cls === 'ai' ? 'blue' : 'green', html: `<span class="tx-math" contenteditable="false" data-tex="${esc(a.latex)}"></span>`, lock: true });
+  }
   if (p.strokes?.length) {
     const k = 2, c = document.createElement('canvas');
     c.width = W * k; c.height = H * k;
@@ -2720,7 +2781,7 @@ menu.addEventListener('click', e => {
   if (what === 'tex') download(`ink2latex-${stamp()}.tex`,
     `\\documentclass{article}\n\\usepackage{amsmath,amssymb}\n\\usepackage{tikz}\n\\begin{document}\n\n${allLatex()}\n\n\\end{document}\n`, 'application/x-tex');
   if (what === 'md') download(`ink2latex-${stamp()}.md`, allMarkdown(), 'text/markdown');
-  if (what === 'print') setTimeout(() => window.print(), 50);
+  if (what === 'print') printNow();
   if (what === 'save') download(`ink2latex-${stamp()}.json`, JSON.stringify(serialize(true)), 'application/json');
   if (what === 'load') $('#loadInput').click();
 });
@@ -2737,7 +2798,7 @@ document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); board.undo(); }
   else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); board.redo(); }
-  else if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); window.print(); }
+  else if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); printNow(); }
   else if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'd') { e.preventDefault(); toggleDiag(); }
   else if ((e.ctrlKey || e.metaKey) && k === 'g' && board.sel) {
     // Ctrl+G groups the selection, Ctrl+Shift+G ungroups a selected group (as in PowerPoint)

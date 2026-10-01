@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-01.1456';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-02.0003';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -360,7 +360,7 @@ export function initSend(app) {
     if (a === 'back') { S.view = 'main'; S.error = ''; render(); }
     if (a === 'create') create();
     if (a === 'live') { S.live ? stopLive() : startLive(); render(); }
-    if (a === 'show') showCode();
+    if (a === 'show') { menu.hidden = true; showCode(); } // the menu would stay open behind the code
   });
   window.addEventListener('beforeunload', e => { if (S.live && S.busy) e.preventDefault(); });
 
