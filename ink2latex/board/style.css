@@ -617,3 +617,20 @@ body[data-board="black"] #asgChip { background: #4a3a14; color: #ffe7a6; }
 #keysDlg h4 { margin: 10px 0 4px; color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
 #keysDlg .keys-row { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; font-size: 13px; }
 #keysDlg kbd { flex: 0 0 120px; font: 600 12px ui-monospace, Consolas, monospace; background: var(--btn-hover); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; text-align: center; }
+
+/* the bar under the panel heading: filter, next that needs attention, order */
+#cardBar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 0 0 8px; font-size: 12px; }
+#nextAttn { padding: 1px 8px; font-size: 12px; color: var(--warn); border-color: var(--warn); }
+#cardBar .check { font-size: 12px; color: var(--dim); }
+/* folded card: one line (number, reading, mark); a click opens it */
+.card.compact { padding: 3px 10px; margin-bottom: 4px; cursor: pointer; }
+.card.compact:hover { border-color: var(--accent); }
+.card.compact .card-head { gap: 10px; }
+.card.compact .render.mini { flex: 1; min-width: 0; padding: 0; min-height: 0; font-size: 13px; color: var(--text);
+  max-height: 2.2em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.card.compact .render.mini .katex-display { margin: 0; text-align: left; }
+.card.compact .render.mini .katex-display > .katex { text-align: left; }
+.card.compact .render.mini img.fig { display: none; }
+.card.compact .mark { color: var(--dim); font-size: 13px; }
+.card.compact .mark.ok { color: var(--ok); font-weight: 700; }
+.card-head .fold { padding: 0 6px; font-size: 11px; line-height: 16px; margin-left: 4px; }

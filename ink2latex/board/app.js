@@ -1,16 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0545';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0545';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0545';
-import { initSend } from './send.js?v=2026-10-06.0545';
-import { initStudent } from './student.js?v=2026-10-06.0545';
-import { initAssign } from './assign.js?v=2026-10-06.0545';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0545';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0545';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0545';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0545';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0553';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0553';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0553';
+import { initSend } from './send.js?v=2026-10-06.0553';
+import { initStudent } from './student.js?v=2026-10-06.0553';
+import { initAssign } from './assign.js?v=2026-10-06.0553';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0553';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0553';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0553';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0553';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1049,7 +1049,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0545');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0553');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1929,6 +1929,15 @@ function suggestHtml(b) {
     <div class="actions"><button data-act="accept">Accept</button><button data-act="dismiss">Dismiss</button></div></div>`;
 }
 
+// Cards that need nothing from you fold to one line (green: read with nothing flagged, or confirmed;
+// and regions read as empty), so the column is mostly the ones worth a look. Opening one by hand
+// keeps it open until it is folded, confirmed, or the session ends (openCards is never saved).
+const openCards = new Set();
+function isCompact(b) {
+  if (openCards.has(b.id)) return false;
+  return regionState(b) === 'good' || (b.status === 'ok' && b.result?.kind === 'empty');
+}
+
 function fillCard(el, b, num) {
   el.classList.toggle('confirmed', !!b.confirmed);
   const focused = el.contains(document.activeElement) && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName);
@@ -1936,7 +1945,18 @@ function fillCard(el, b, num) {
   const meta = b.status === 'busy'
     ? `<span class="busy">${MODELS[b.model]} …</span>`
     : b.status === 'ok' && b.model ? `${MODELS[b.model] || b.model}${b.ms ? ` · ${b.ms} ms` : ''}${b.edit != null ? ' · edited' : ''}${agreementTag(b)}` : '';
-  const head = `<span class="num">${num}</span><span class="kind">${r ? r.kind : ''}</span><span class="meta">${meta}</span>`;
+  const compact = isCompact(b) && !focused;
+  el.classList.toggle('compact', compact);
+  if (compact) {
+    // one line: number, the reading, and whether you confirmed it; a click opens the whole card
+    el.title = 'Click to open this card';
+    el.innerHTML = `<div class="card-head"><span class="num">${num}</span><div class="render mini">${blockContentHtml(b)}</div>
+      <span class="mark ${b.confirmed ? 'ok' : ''}" title="${b.confirmed ? 'Confirmed by you' : 'Read with nothing flagged'}">${b.confirmed ? '✓' : '●'}</span></div>`;
+    return;
+  }
+  el.title = '';
+  const fold = regionState(b) === 'good' ? '<button class="fold" data-act="fold" title="Fold this card to one line">▴</button>' : '';
+  const head = `<span class="num">${num}</span><span class="kind">${r ? r.kind : ''}</span><span class="meta">${meta}</span>${fold}`;
   if (focused) {
     el.querySelector('.card-head').innerHTML = head;
     el.querySelector('.render').innerHTML = blockContentHtml(b);
@@ -1997,8 +2017,11 @@ function cardFor(b) {
   });
   el.addEventListener('click', e => {
     const act = e.target.closest('button')?.dataset.act;
+    if (!act && el.classList.contains('compact')) { openCards.add(b.id); renderAll(); return; }
     if (!act) return;
-    if (act === 'confirm') { b.confirmed = !b.confirmed; renderAll(); saveSoon(); }
+    if (act === 'fold') { openCards.delete(b.id); renderAll(); return; }
+    // confirming folds the card: checked, so it no longer needs the room
+    if (act === 'confirm') { b.confirmed = !b.confirmed; if (b.confirmed) openCards.delete(b.id); renderAll(); saveSoon(); }
     if (act === 'rerun') transcribe(b, settings.finalModel === b.model ? settings.liveModel : settings.finalModel);
     if (act === 'latex') copyText(sourceOf(b), 'LaTeX copied');
     if (act === 'word') copyText(toMathML(sourceOf(b)), 'MathML copied - paste into Word');
@@ -2186,6 +2209,33 @@ function applyCardFilter(list) {
     btn.classList.toggle('active', btn.dataset.f === (only ? 'attention' : 'all'));
     if (btn.dataset.f === 'attention') btn.textContent = n ? `Needs attention (${n})` : 'Needs attention';
   }
+  const next = $('#nextAttn');
+  next.hidden = !n;
+  next.textContent = `⚠ Next (${n})`;
+}
+
+// ⚠ Next (or N): the next region after the last one visited that needs a look, in page order and
+// round again at the end. Its card opens and comes into view; its place on the page is scrolled to
+// and lit up for a moment.
+let lastAttnId = null;
+function nextAttention() {
+  const list = layoutOf();
+  const need = list.filter(({ b }) => needsAttention(b));
+  if (!need.length) { toast('Nothing on this page needs attention'); return; }
+  const at = list.findIndex(({ b }) => b.id === lastAttnId);
+  const pick = need.find(({ b }) => list.findIndex(x => x.b === b) > at) || need[0];
+  const b = pick.b;
+  lastAttnId = b.id;
+  openCards.add(b.id);
+  renderAll();
+  cardEls.get(b.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const box = blockBox(b);
+  scrollToMark(box);
+  board.highlight = box; board.request();
+  const frames = framesOf(b.id);
+  frames.forEach(f => f.classList.add('hl'));
+  clearTimeout(nextAttention.t);
+  nextAttention.t = setTimeout(() => { board.highlight = null; board.request(); frames.forEach(f => f.classList.remove('hl')); }, 1600);
 }
 
 // Hold to preview: every region's transcription over the ink, for as long as the button or Space is held
@@ -2208,17 +2258,22 @@ function renderAll() {
   const list = layoutOf();
   const cards = $('#cards');
   const keep = new Set();
-  list.forEach(({ b, parts }, i) => {
+  // the cards follow the page's numbering; with "Attention first" the ones that need a look go to
+  // the top (in page order among themselves) and keep their page numbers
+  const order = list.map((_, i) => i);
+  if (settings.attnFirst) order.sort((x, y) => (needsAttention(list[y].b) - needsAttention(list[x].b)) || x - y);
+  order.forEach((i, pos) => {
+    const { b, parts } = list[i];
     const el = cardFor(b);
     // redraw a card only when something shown on it changed (typesetting every card is slow)
     const key = JSON.stringify([i, b.status, b.model, b.ms, b.result, b.edit, b.confirmed, b.comment, b.suggest,
       b.answer?.status, b.answer?.data, b.answer?.error, !!b.figure, b.figureBusy, b.figureError, b.error, !!b.orig,
-      parts.length, settings.liveModel, settings.finalModel, b.agreement, b.pageAgree]);
+      parts.length, settings.liveModel, settings.finalModel, b.agreement, b.pageAgree, openCards.has(b.id)]);
     if (el.dataset.key !== key || el.contains(document.activeElement)) {
       fillCard(el, b, i + 1);
       el.dataset.key = key;
     }
-    if (el.parentNode !== cards || cards.children[i] !== el) cards.insertBefore(el, cards.children[i] || null);
+    if (el.parentNode !== cards || cards.children[pos] !== el) cards.insertBefore(el, cards.children[pos] || null);
     keep.add(b.id);
   });
   for (const [id, el] of cardEls) if (!keep.has(id)) {
@@ -2870,6 +2925,12 @@ function penPopPick(btn) {
   }
   if (d.slot != null) chooseSlot(Number(d.slot));
 }
+function recallSlot(i) {
+  const st = slots()[i];
+  if (!st) { toast(`Pen slot ${i + 1} is empty: hold S and press ${i + 1} to store the current pen there`); return; }
+  applyPenStyle(st);
+  toast(`Pen ${i + 1}`);
+}
 function chooseSlot(i) {
   if (!penPop) return;
   if (penKey) penKey.used = true;
@@ -2910,9 +2971,9 @@ document.addEventListener('pointerdown', e => { if (penPop && !penPop.contains(e
 const SHORTCUTS = [
   ['Writing', [['P', 'Pen / laser pointer (or Shift pressed alone)'], ['E', 'Eraser on / off'], ['T', 'Text box'], ['S or G', 'Select (lasso)'],
     ['C (hold)', 'Pen palette: 8 colours, see-through, dashed, 3 widths. Let go to write on'],
-    ['S (hold)', 'Store the current pen in one of 5 slots'], ['R (hold)', 'Recall one of the 5 stored pens'], ['1-5', 'Pick a slot while its palette is open']]],
+    ['S (hold)', 'Store the current pen in one of 5 slots'], ['R (hold)', 'Recall one of the 5 stored pens'], ['1-5', 'Switch to stored pen 1-5 (or pick a slot while a palette is open)']]],
   ['Page', [['Space (hold)', 'Preview: the transcriptions in place of the ink'], ['B', 'Region boxes: all / current / off'],
-    ['I', 'Use the HTML on this page / write on it'], ['← → / PgUp PgDn', 'Previous / next page'], ['Enter', 'Answer the question under the pen']]],
+    ['I', 'Use the HTML on this page / write on it'], ['N', 'Next region that needs attention'], ['← → / PgUp PgDn', 'Previous / next page'], ['Enter', 'Answer the question under the pen']]],
   ['Editing', [['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+G', 'Group the selection'], ['Ctrl+Shift+G', 'Ungroup'], ['Delete', 'Delete the selection'], ['Esc', 'Deselect, close a popup']]],
   ['Other', [['K', 'This list'], ['Ctrl+P', 'Print'], ['Ctrl+Shift+D', 'Diagnostics']]],
 ];
@@ -3041,6 +3102,9 @@ $('#cardFilter').addEventListener('click', e => {
   settings.cardFilter = f; saveSettings();
   applyCardFilter(layoutOf());
 });
+$('#nextAttn').addEventListener('click', nextAttention);
+$('#attnFirst').checked = !!settings.attnFirst;
+$('#attnFirst').addEventListener('change', e => { settings.attnFirst = e.target.checked; saveSettings(); renderAll(); });
 
 // Preview: held, not toggled. Pointer on the button, or the Space key anywhere outside a text field.
 const previewBtn = $('#previewBtn');
@@ -3246,6 +3310,9 @@ document.addEventListener('keydown', e => {
     if (k === 's') { e.preventDefault(); penKeyDown('s', 'store', 250); return; }
     if (k === 'k') { e.preventDefault(); if (!e.repeat) toggleKeys(); return; }
     if (penPop && penPop.dataset.mode !== 'style' && /^[1-5]$/.test(k)) { e.preventDefault(); chooseSlot(Number(k) - 1); return; }
+    // 1-5 on their own: switch straight to that stored pen (hold R to see what is where)
+    if (!penPop && /^[1-5]$/.test(k)) { e.preventDefault(); recallSlot(Number(k) - 1); return; }
+    if (k === 'n') { e.preventDefault(); nextAttention(); return; }
     if (k === 'escape' && (penPop || $('#keysDlg'))) { closePenPop(); $('#keysDlg')?.remove(); return; }
   }
   if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); board.undo(); }
