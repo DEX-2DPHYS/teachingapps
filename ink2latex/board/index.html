@@ -6,7 +6,7 @@
 <title>ink2latex</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-06.0553">
+<link rel="stylesheet" href="style.css?v=2026-10-06.0559">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -15,7 +15,7 @@
   <div class="group">
     <button data-tool="pen" class="active" title="Pen (P or Shift switches pen / laser)">✎<span class="lbl"> Pen</span></button>
     <button data-tool="laser" title="Laser pointer (P or Shift switches pen / laser): point, or draw a red trace that fades after 5 s. Not saved, not sent.">🔴<span class="lbl"> Laser</span></button>
-    <button data-tool="eraser" title="Eraser (E toggles pen/eraser). Or hold Ctrl while writing. The eraser end of the Wacom pen also works.">⌫<span class="lbl"> Eraser</span></button>
+    <button data-tool="eraser" title="Eraser. E: erases whole strokes. X: erases only what it touches, the rest of the line stays. Click the button again to switch between the two. Or hold Ctrl while writing; the eraser end of the Wacom pen also works.">⌫<span class="lbl"> Eraser</span></button>
     <button data-tool="lasso" title="Select (S): draw a loop around strokes, then drag to move, drag the corner to resize, or Group them into one region">◌<span class="lbl"> Select</span></button>
     <button data-tool="text" title="Text (T): click on the page to type. Click a box again to edit it, drag its right edge to change the width, ✥ to move it. Students see the text.">T<span class="lbl"> Text</span></button>
     <span class="swatches">
@@ -154,6 +154,10 @@
             <option value="erase">erases while held</option>
             <option value="scroll">scrolls the page</option>
           </select></label>
+          <label class="row" title="What the eraser end of the pen, the side button and Ctrl remove. The Eraser tool itself switches with E (whole strokes) and X (only what it touches).">Eraser end, Ctrl <select id="eraseEnd">
+            <option value="stroke">erase whole strokes</option>
+            <option value="part">erase only what they touch</option>
+          </select></label>
         </section>
         <section>
           <h4>Export</h4>
@@ -227,6 +231,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-06.0553"></script>
+<script type="module" src="app.js?v=2026-10-06.0559"></script>
 </body>
 </html>

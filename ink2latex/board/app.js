@@ -1,16 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0553';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0553';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0553';
-import { initSend } from './send.js?v=2026-10-06.0553';
-import { initStudent } from './student.js?v=2026-10-06.0553';
-import { initAssign } from './assign.js?v=2026-10-06.0553';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0553';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0553';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0553';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0553';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0559';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0559';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0559';
+import { initSend } from './send.js?v=2026-10-06.0559';
+import { initStudent } from './student.js?v=2026-10-06.0559';
+import { initAssign } from './assign.js?v=2026-10-06.0559';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0559';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0559';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0559';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0559';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1049,7 +1049,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0553');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0559');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2779,6 +2779,7 @@ function setTool(t) {
   board.tool = t;
   textLayer.setActive(t === 'text');
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+  applyEraserLook();
   applyCursor();
   renderFigHandles();
   fullscreen?.sync();
@@ -2822,7 +2823,24 @@ const togglePenLaser = () => setTool(board.tool === 'pen' ? 'laser' : 'pen');
   document.addEventListener('keyup', e => { if (e.key === 'Shift' && shiftAlone && !typing(e)) togglePenLaser(); shiftAlone = false; });
   document.addEventListener('pointerdown', () => { shiftAlone = false; }, true); // Shift + click is not a switch
 }
-document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => {
+  // the Eraser button pressed again switches between whole strokes and only what it touches
+  if (b.dataset.tool === 'eraser' && board.tool === 'eraser') { setEraser(!board.partialErase); return; }
+  setTool(b.dataset.tool);
+}));
+// Eraser: whole strokes (E) or only the ink it touches (X); the button shows which
+function setEraser(partial) {
+  board.partialErase = partial;
+  setTool('eraser');
+  toast(partial ? 'Eraser: only what it touches (X)' : 'Eraser: whole strokes (E)');
+}
+function applyEraserLook() {
+  const b = document.querySelector('[data-tool=eraser]');
+  if (!b) return;
+  const part = board.partialErase;
+  b.innerHTML = part ? '✂<span class="lbl"> Part erase</span>' : '⌫<span class="lbl"> Eraser</span>';
+  b.classList.toggle('partial', part);
+}
 
 document.querySelectorAll('.swatch').forEach(b => b.addEventListener('click', () => {
   board.color = b.dataset.color;
@@ -2969,7 +2987,7 @@ document.addEventListener('pointerdown', e => { if (penPop && !penPop.contains(e
 
 // K: every keyboard shortcut, as a splash; K again, Esc or a click closes it
 const SHORTCUTS = [
-  ['Writing', [['P', 'Pen / laser pointer (or Shift pressed alone)'], ['E', 'Eraser on / off'], ['T', 'Text box'], ['S or G', 'Select (lasso)'],
+  ['Writing', [['P', 'Pen / laser pointer (or Shift pressed alone)'], ['E', 'Eraser: whole strokes'], ['X', 'Eraser: only what it touches (fix part of a line)'], ['T', 'Text box'], ['S or G', 'Select (lasso)'],
     ['C (hold)', 'Pen palette: 8 colours, see-through, dashed, 3 widths. Let go to write on'],
     ['S (hold)', 'Store the current pen in one of 5 slots'], ['R (hold)', 'Recall one of the 5 stored pens'], ['1-5', 'Switch to stored pen 1-5 (or pick a slot while a palette is open)']]],
   ['Page', [['Space (hold)', 'Preview: the transcriptions in place of the ink'], ['B', 'Region boxes: all / current / off'],
@@ -3135,6 +3153,9 @@ document.addEventListener('click', () => { settingsMenu.hidden = true; });
 const penBtnEl = $('#penButton');
 penBtnEl.value = board.penButton = settings.penButton || 'erase';
 penBtnEl.addEventListener('change', () => { board.penButton = settings.penButton = penBtnEl.value; saveSettings(); });
+const eraseEndEl = $('#eraseEnd');
+eraseEndEl.value = board.eraseEnd = settings.eraseEnd || 'stroke';
+eraseEndEl.addEventListener('change', () => { board.eraseEnd = settings.eraseEnd = eraseEndEl.value; saveSettings(); });
 
 // transparency of the students' comment/question markers (Settings → Board)
 {
@@ -3329,7 +3350,8 @@ document.addEventListener('keydown', e => {
     else if (st.length) groupStrokes(st);
   }
   else if (!e.ctrlKey && !e.metaKey && k === 'p') togglePenLaser();
-  else if (!e.ctrlKey && !e.metaKey && k === 'e') setTool(board.tool === 'eraser' ? 'pen' : 'eraser'); // E toggles
+  else if (!e.ctrlKey && !e.metaKey && k === 'e') { if (board.tool === 'eraser' && !board.partialErase) setTool('pen'); else setEraser(false); } // E: whole strokes
+  else if (!e.ctrlKey && !e.metaKey && k === 'x') { if (board.tool === 'eraser' && board.partialErase) setTool('pen'); else setEraser(true); } // X: only what it touches
   else if (!e.ctrlKey && !e.metaKey && (k === 's' || k === 'g')) setTool('lasso');
   else if (!e.ctrlKey && !e.metaKey && k === 'b') toggleBoxes();
   else if (!e.ctrlKey && !e.metaKey && k === 'i' && curPage().panes?.length) setInteract(!htmlInteract);

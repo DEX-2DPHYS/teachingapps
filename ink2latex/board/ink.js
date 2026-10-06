@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-06.0553';
+import { recognize } from './shapes.js?v=2026-10-06.0559';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -241,6 +241,8 @@ export class Board {
     this.pickPartAt = null;                        // p -> stroke ids of the piece of a group under p (Alt)
     this.onHover = null;                           // p | null while the pen/mouse hovers without drawing
     this.onTap = null;                             // selection clicked without moving
+    this.partialErase = false;  // Eraser tool: only what it touches (X) instead of whole strokes (E)
+    this.eraseEnd = 'stroke';   // pen's eraser end, side button and Ctrl: 'stroke' | 'part'
     this.penButton = 'erase';                      // pen side button: 'erase' | 'scroll'
     this.onDoubleTap = null;                       // p: double tap / double click on the page
     this.lastTap = null;
@@ -432,7 +434,10 @@ export class Board {
       this.active = { id: e.pointerId, laser: [[p[0], p[1], performance.now()]] };
       this.trail = [];
     } else if (this.isEraser(e)) {
-      this.active = { id: e.pointerId, eraser: true, removed: [] };
+      // the Eraser tool erases whole strokes or, after X, only what it touches; the pen's eraser end,
+      // its side button and Ctrl follow the setting for them (eraseEnd)
+      this.active = { id: e.pointerId, eraser: true, removed: [], added: [],
+        partial: this.tool === 'eraser' ? this.partialErase : this.eraseEnd === 'part' };
       this.canvas.style.cursor = 'none'; // the tinted circle shows where it erases (also Ctrl / eraser end)
       this.eraseAt(p);
     } else {
@@ -514,7 +519,8 @@ export class Board {
         this.onSelect(this.sel);
       }
     } else if (a.eraser) {
-      if (a.removed.length) this.push({ type: 'remove', strokes: a.removed }, 'erase');
+      if (a.added.length) this.push({ type: 'replace', removed: a.removed, added: a.added }, 'erase');
+      else if (a.removed.length) this.push({ type: 'remove', strokes: a.removed }, 'erase');
     } else {
       const st = a.stroke;
       // a tap: very short in time and space. Two taps on the same spot = double tap (no dots are kept).
@@ -642,7 +648,11 @@ export class Board {
     }, HOLD_MS);
   }
 
+  // Whole-stroke eraser: a touched stroke goes. Partial eraser (a.partial): only the ink under the
+  // eraser disc goes; what is left of the stroke stays as new strokes (pieces). A piece made earlier
+  // in the same drag and cut again is simply replaced, so undo restores the original in one step.
   eraseAt(p) {
+    const a = this.active;
     const list = this.page.strokes;
     for (let i = list.length - 1; i >= 0; i--) {
       const s = list[i];
@@ -651,8 +661,39 @@ export class Board {
       if (p[0] < b.x0 - r || p[0] > b.x1 + r || p[1] < b.y0 - r || p[1] > b.y1 + r) continue;
       let hit = s.pts.length === 1 && Math.hypot(p[0] - s.pts[0][0], p[1] - s.pts[0][1]) < r;
       for (let k = 1; k < s.pts.length && !hit; k++) hit = segDist(p, s.pts[k - 1], s.pts[k]) < r;
-      if (hit) { list.splice(i, 1); this.active.removed.push(s); }
+      if (!hit) continue;
+      if (!a.partial) { list.splice(i, 1); a.removed.push(s); continue; }
+      const pieces = this.cutAround(s, p, r);
+      list.splice(i, 1, ...pieces);
+      const k = a.added.indexOf(s);
+      if (k >= 0) a.added.splice(k, 1); else a.removed.push(s);
+      a.added.push(...pieces);
     }
+  }
+
+  // the parts of stroke s outside a circle (centre p, radius r: the eraser plus half the line width,
+  // so the ink it covers disappears). The line is first filled in with points no further apart than
+  // r/3, or a long straight segment would pass under the eraser without a point to cut at.
+  cutAround(s, p, r) {
+    const step = Math.max(0.5, r / 3);
+    const dense = [s.pts[0]];
+    for (let k = 1; k < s.pts.length; k++) {
+      const [x0, y0, p0] = s.pts[k - 1], [x1, y1, p1] = s.pts[k];
+      const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step);
+      for (let j = 1; j <= n; j++) { const t = j / n; dense.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, (p0 ?? 0.5) + ((p1 ?? 0.5) - (p0 ?? 0.5)) * t]); }
+    }
+    const runs = [];
+    let cur = [];
+    for (const q of dense) {
+      if (Math.hypot(q[0] - p[0], q[1] - p[1]) > r) cur.push(q);
+      else if (cur.length) { runs.push(cur); cur = []; }
+    }
+    if (cur.length) runs.push(cur);
+    // a run of one or two points is a crumb at the edge of the cut, not ink anyone wants to keep
+    return runs.filter(run => run.length >= 3).map(pts => {
+      const { _path, _box, ...rest } = s;
+      return { ...rest, id: ++this.seq, pts, shape: null };
+    });
   }
 
   // changes: [{s, after:{pts, shape}}] - replaces stroke geometry in place (ids unchanged), undoable
@@ -677,6 +718,11 @@ export class Board {
     this.clearSelection();
     if (act.type === 'edit') {
       for (const c of act.changes) this.setGeom(c.s, isUndo ? c.before : c.after);
+    } else if (act.type === 'replace') {
+      // a partial erase: the original strokes back and the pieces out (undo), or the other way round
+      const out = new Set((isUndo ? act.added : act.removed).map(s => s.id));
+      this.page.strokes = this.page.strokes.filter(s => !out.has(s.id)).concat(isUndo ? act.removed : act.added);
+      this.page.strokes.sort((x, y) => x.id - y.id);
     } else if ((act.type === 'add') !== isUndo) {
       this.page.strokes.push(...act.strokes);
       this.page.strokes.sort((x, y) => x.id - y.id);
