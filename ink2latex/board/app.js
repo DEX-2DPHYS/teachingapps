@@ -1,16 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0559';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0559';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0559';
-import { initSend } from './send.js?v=2026-10-06.0559';
-import { initStudent } from './student.js?v=2026-10-06.0559';
-import { initAssign } from './assign.js?v=2026-10-06.0559';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0559';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0559';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0559';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0559';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0649';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0649';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0649';
+import { initSend } from './send.js?v=2026-10-06.0649';
+import { initStudent } from './student.js?v=2026-10-06.0649';
+import { initAssign } from './assign.js?v=2026-10-06.0649';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0649';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0649';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0649';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0649';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -101,7 +101,7 @@ function layoutOf(page = curPage()) {
 }
 
 const board = new Board($('#board'), {
-  onCommit: () => { $('#hint').hidden = true; layoutVer++; clearErrorMarks(true); scheduleRegroup(); scheduleInterpret(); saveSoon(); },
+  onCommit: () => { $('#hint').hidden = true; layoutVer++; clearErrorMarks(true); pruneGone(); scheduleRegroup(); scheduleInterpret(); saveSoon(); updateUndoButtons(); },
   onSnap: (type, p) => toastAt(type, p),
   onSelect: sel => placeSelBar(sel),
   onTransform: strokes => afterTransform(strokes),
@@ -340,13 +340,12 @@ function openAboutDialog() {
   const ver = new URL(import.meta.url).searchParams.get('v') || 'dev';
   const d = document.createElement('div');
   d.id = 'aboutDlg';
-  d.innerHTML = `<div class="about-box" role="dialog" aria-label="About ink2latex">
-      <img src="dex-logo.png" alt="DEX: Digital Experiments">
-      <strong>ink2latex</strong>
+  d.innerHTML = `<div class="about-box" role="dialog" aria-label="About DTUwrite">
+      <div class="about-mark"><span class="wordmark" aria-label="DTUwrite"><span class="wm-dt">DT</span><span class="wm-u">Uwrite</span></span></div>
       <div class="dim">An interactive digital whiteboard</div>
       <p>Developed by Peter Bøggild (DTU) using Claude (Anthropic), to support teaching, interaction and
         AI-supported coaching and transcription, based on advanced multimodal input with digital pens.</p>
-      <p><a href="https://dex-2dphys.github.io/" target="_blank" rel="noopener">DEX: Digital Experiments ↗</a></p>
+      <p class="about-dex"><img src="dex-logo.png" alt=""> <a href="https://dex-2dphys.github.io/" target="_blank" rel="noopener">DEX: Digital Experiments ↗</a></p>
       <p class="dim">Press K for the keyboard shortcuts.</p>
       <div class="about-act"><span class="dim">Version ${ver}</span><button data-a="close">Close</button></div>
     </div>`;
@@ -724,6 +723,28 @@ $('#pageLabel').addEventListener('click', openPages);
 
 // ----------------------------------------------------------------------------------- grouping
 let regroupTimer = 0;
+// Strokes that are gone (erased, cleared, undone) leave their regions at once: waiting for the
+// regrouping pause left the panel showing cards for ink that was no longer there. New strokes still
+// wait for the pause, so a region is not read while it is being written.
+function pruneGone(page = curPage()) {
+  const ids = new Set(page.strokes.map(s => s.id));
+  let changed = false;
+  for (const b of page.blocks) {
+    const n = b.strokeIds.length;
+    b.strokeIds = b.strokeIds.filter(id => ids.has(id));
+    if (b.strokeIds.length !== n) changed = true;
+  }
+  const n = page.blocks.length;
+  page.blocks = page.blocks.filter(b => b.strokeIds.length);
+  if (changed || page.blocks.length !== n) { layoutVer++; renderAll(); }
+}
+// Undo / Redo look unavailable when there is nothing to undo or redo on this page
+function updateUndoButtons() {
+  const p = curPage();
+  $('#undo').disabled = !p.undo?.length;
+  $('#redo').disabled = !p.redo?.length;
+}
+
 function scheduleRegroup() {
   clearTimeout(regroupTimer);
   regroupTimer = setTimeout(regroup, IDLE_MS);
@@ -1049,7 +1070,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0559');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0649');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2290,6 +2311,7 @@ function renderAll() {
   renderInterp();
   renderPhotos();
   $('#pageLabel').textContent = `${state.cur + 1} / ${state.pages.length}`;
+  updateUndoButtons();
   $('#pagePrev').disabled = state.cur === 0;
   $('#pageNext').disabled = state.cur === state.pages.length - 1;
   $('#interpret').disabled = interpBusy;
@@ -2982,8 +3004,19 @@ function penKeyUp(key) {
 }
 document.addEventListener('keyup', e => { if (penKeyUp(e.key.toLowerCase())) e.preventDefault(); });
 window.addEventListener('blur', () => { if (penKey) { clearTimeout(penKey.timer); penKey = null; closePenPop(); } });
-// an open palette (left open by a tap) closes on a press anywhere else
-document.addEventListener('pointerdown', e => { if (penPop && !penPop.contains(e.target)) closePenPop(); }, true);
+// An open palette (left open by a tap) closes on a press anywhere else. And a press on the page while
+// a menu or the palette is open only closes it: people click "somewhere else" to dismiss a menu, and
+// that press used to leave a dot of ink, i.e. a new region, read by the AI and sent to the students.
+// (Found by the exploratory persona test.)
+document.addEventListener('pointerdown', e => {
+  const menus = [...document.querySelectorAll('.popup')].filter(m => !m.hidden);
+  const palette = penPop && !penPop.contains(e.target);
+  if (!menus.length && !palette) return;
+  if (palette) closePenPop();
+  if (!e.target.closest?.('#boardWrap')) return; // elsewhere: the menus close as before
+  menus.forEach(m => { m.hidden = true; });
+  e.preventDefault(); e.stopPropagation();
+}, true);
 
 // K: every keyboard shortcut, as a splash; K again, Esc or a click closes it
 const SHORTCUTS = [
@@ -3008,7 +3041,7 @@ function toggleKeys() {
 
 $('#undo').addEventListener('click', () => board.undo());
 $('#redo').addEventListener('click', () => board.redo());
-$('#clear').addEventListener('click', () => board.clear());
+$('#clear').addEventListener('click', () => { if (!curPage().strokes.length) { toast('No writing on this page to clear (slides and figures: 🖼 → Clear…)'); return; } board.clear(); });
 
 const snapEl = $('#snap');
 snapEl.checked = settings.snap; board.snap = settings.snap;
@@ -3125,12 +3158,57 @@ $('#attnFirst').checked = !!settings.attnFirst;
 $('#attnFirst').addEventListener('change', e => { settings.attnFirst = e.target.checked; saveSettings(); renderAll(); });
 
 // Preview: held, not toggled. Pointer on the button, or the Space key anywhere outside a text field.
+// A quick click (a person's first try) keeps it on until clicked again, Space or Esc: a preview that
+// flashed for the length of a click looked like a button that does nothing.
 const previewBtn = $('#previewBtn');
-previewBtn.addEventListener('pointerdown', e => { e.preventDefault(); previewBtn.setPointerCapture?.(e.pointerId); setPreview(true); });
-for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) previewBtn.addEventListener(ev, () => setPreview(false));
-window.addEventListener('blur', () => setPreview(false)); // a window that loses focus never sees the key go up
+let previewDown = 0, previewLatched = false;
+function previewPress() { if (previewLatched) { previewLatched = false; setPreview(false); previewDown = 0; return; } previewDown = performance.now(); setPreview(true); }
+function previewRelease() {
+  if (!previewDown) return;
+  const quick = performance.now() - previewDown < 300;
+  previewDown = 0;
+  if (quick) { previewLatched = true; toast('Preview on: click 👁 again, or press Space or Esc, to see the ink'); } else setPreview(false);
+}
+previewBtn.addEventListener('pointerdown', e => { e.preventDefault(); previewBtn.setPointerCapture?.(e.pointerId); previewPress(); });
+for (const ev of ['pointerup', 'pointercancel']) previewBtn.addEventListener(ev, previewRelease);
+window.addEventListener('blur', () => { if (previewDown) { previewDown = 0; setPreview(false); } }); // a window that loses focus never sees the key go up (a latched preview stays)
 const settingsMenu = $('#settingsMenu');
-$('#settingsBtn').addEventListener('click', e => { e.stopPropagation(); settingsMenu.hidden = !settingsMenu.hidden; });
+$('#settingsBtn').addEventListener('click', e => { e.stopPropagation(); settingsMenu.hidden = !settingsMenu.hidden; if (!settingsMenu.hidden) showSettingsTab(); });
+
+// Settings in tabs: a column of categories on the left, one category at a time on the right. Built
+// from the sections in the markup (each section's heading is its tab), so a new section gets a tab
+// by itself. "Reading accuracy" is split off the AI section into a tab of its own.
+{
+  const ai = [...settingsMenu.querySelectorAll('section')].find(s => s.querySelector('h4')?.textContent.trim() === 'AI');
+  const ra = [...(ai?.querySelectorAll('h4') || [])].find(h => /Reading accuracy/.test(h.textContent));
+  if (ai && ra) {
+    const sec = document.createElement('section');
+    ai.after(sec);
+    for (let n = ra; n;) { const next = n.nextSibling; sec.appendChild(n); n = next; }
+  }
+  const nav = document.createElement('nav'); nav.id = 'setTabs';
+  const panes = document.createElement('div'); panes.id = 'setPanes';
+  for (const sec of [...settingsMenu.children].filter(x => x.tagName === 'SECTION')) {
+    const name = sec.querySelector('h4')?.textContent.trim() || 'More';
+    sec.dataset.tab = name;
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = name; b.dataset.tab = name;
+    b.className = [...sec.classList].filter(c => /only$/.test(c)).join(' '); // lecturer-only / student-only follow the section
+    nav.appendChild(b);
+    panes.appendChild(sec);
+  }
+  settingsMenu.prepend(nav, panes);
+  nav.addEventListener('click', e => { const t = e.target.closest('button')?.dataset.tab; if (t) { settings.setTab = t; saveSettings(); showSettingsTab(); } });
+}
+// the remembered tab, or the first one this person has (a student has no Students tab)
+function showSettingsTab() {
+  const tabs = [...$('#setTabs').children];
+  const usable = b => getComputedStyle(b).display !== 'none' && !$(`#setPanes section[data-tab="${b.dataset.tab}"]`)?.hidden;
+  const want = tabs.find(b => b.dataset.tab === settings.setTab && usable(b)) || tabs.find(usable);
+  for (const b of tabs) b.classList.toggle('active', b === want);
+  for (const s of $('#setPanes').children) s.classList.toggle('tab-on', s.dataset.tab === want?.dataset.tab);
+}
+showSettingsTab();
 
 // Drop-down menus open leftwards from their button; when the toolbar wraps and the button sits near
 // the left edge, that would put them off screen, so they flip to open rightwards instead.
@@ -3305,11 +3383,11 @@ menu.addEventListener('click', e => {
   if (!what) return;
   if (what !== 'load') settingsMenu.hidden = true;
   if (what === 'copy-latex') copyText(allLatex(), 'All LaTeX copied');
-  if (what === 'tex') download(`ink2latex-${stamp()}.tex`,
+  if (what === 'tex') download(`DTUwrite-${stamp()}.tex`,
     `\\documentclass{article}\n\\usepackage{amsmath,amssymb}\n\\usepackage{tikz}\n\\begin{document}\n\n${allLatex()}\n\n\\end{document}\n`, 'application/x-tex');
-  if (what === 'md') download(`ink2latex-${stamp()}.md`, allMarkdown(), 'text/markdown');
+  if (what === 'md') download(`DTUwrite-${stamp()}.md`, allMarkdown(), 'text/markdown');
   if (what === 'print') printNow();
-  if (what === 'save') download(`ink2latex-${stamp()}.json`, JSON.stringify(serialize(true)), 'application/json');
+  if (what === 'save') download(`DTUwrite-${stamp()}.json`, JSON.stringify(serialize(true)), 'application/json');
   if (what === 'load') $('#loadInput').click();
 });
 $('#loadInput').addEventListener('change', async e => {
@@ -3322,7 +3400,7 @@ $('#loadInput').addEventListener('change', async e => {
 // keyboard
 document.addEventListener('keydown', e => {
   if (e.target.isContentEditable || (e.target.closest && e.target.closest('textarea, input, select'))) return;
-  if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setPreview(true); return; } // hold Space = preview
+  if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat && !previewDown) previewPress(); return; } // Space: hold = preview while held, tap = on until the next tap
   const k = e.key.toLowerCase();
   if (!e.ctrlKey && !e.metaKey && !e.altKey) {
     // pen palettes (held keys) and the shortcut list
@@ -3335,6 +3413,7 @@ document.addEventListener('keydown', e => {
     if (!penPop && /^[1-5]$/.test(k)) { e.preventDefault(); recallSlot(Number(k) - 1); return; }
     if (k === 'n') { e.preventDefault(); nextAttention(); return; }
     if (k === 'escape' && (penPop || $('#keysDlg'))) { closePenPop(); $('#keysDlg')?.remove(); return; }
+    if (k === 'escape' && previewHeld) { previewLatched = false; previewDown = 0; setPreview(false); return; }
   }
   if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); board.undo(); }
   else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); board.redo(); }
@@ -3368,7 +3447,7 @@ document.addEventListener('keydown', e => {
   }
 });
 // Space up ends the preview (and must not also click whatever button has focus)
-document.addEventListener('keyup', e => { if (e.key === ' ' && previewHeld) { e.preventDefault(); setPreview(false); } });
+document.addEventListener('keyup', e => { if (e.key === ' ' && (previewHeld || previewDown)) { e.preventDefault(); previewRelease(); } });
 
 // ----------------------------------------------------------------------------------- start
 board.setPage(curPage());

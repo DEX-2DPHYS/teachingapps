@@ -96,10 +96,19 @@ body[data-board="black"] .swatch[data-color="green"] { background: #9ae6a0; }
 #viewMenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #settingsMenu section { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 #settingsMenu h4 { margin: 0 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
-#settingsMenu section:nth-of-type(2) { grid-row: span 3; } /* AI: the longest section, right column */
+/* tabs: categories in a column on the left, the chosen one on the right (app.js builds them) */
+#settingsMenu { grid-template-columns: 150px 1fr; gap: 0 18px; }
+#setTabs { display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--line); padding-right: 10px; }
+#setTabs button { text-align: left; border-color: transparent; background: transparent; padding: 6px 10px; border-radius: 6px; }
+#setTabs button:hover { background: var(--btn-hover); }
+#setTabs button.active { background: var(--accent); color: #fff; }
+#setPanes { min-height: 320px; min-width: 0; }
+#setPanes section { display: none; }
+#setPanes section.tab-on { display: flex; }
+#setPanes section > h4:first-child { display: none; } /* the tab names it */
 #exportMenu { display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 100%; }
 #exportMenu button { text-align: left; }
-@media (max-width: 700px) { #settingsMenu { grid-template-columns: 1fr; } #settingsMenu section:nth-of-type(2) { grid-row: auto; } }
+@media (max-width: 700px) { #settingsMenu { grid-template-columns: 1fr; } #setTabs { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 6px; margin-bottom: 8px; } }
 
 /* send mode */
 #sendMenu {
@@ -568,14 +577,20 @@ body[data-board="black"] #asgChip { background: #4a3a14; color: #ffe7a6; }
 #asgBtn { position: relative; }
 #asgBtn .asg-n { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; border-radius: 8px; background: #c62828; color: #fff; font-size: 11px; line-height: 16px; text-align: center; padding: 0 3px; }
 
-/* DEX logo in the tool bar, and the About box it opens */
-#aboutBtn { padding: 1px 6px; border-color: transparent; background: transparent; line-height: 0; }
+/* the About box (opened by the wordmark) */
+/* the DTUwrite wordmark: "DT" in ink, "Uwrite" in DTU red; top left of the tool bar, opens About */
+.wordmark { font: 800 22px/1 "Segoe UI", system-ui, sans-serif; letter-spacing: -0.02em; white-space: nowrap; }
+.wordmark .wm-dt { color: #111; }
+.wordmark .wm-u { color: #990000; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .wordmark .wm-dt { color: #f2f2f2; } :root:not([data-theme="light"]) .wordmark .wm-u { color: #ff5a5a; } }
+#aboutBtn { padding: 2px 8px; border-color: transparent; background: transparent; line-height: 1; }
 #aboutBtn:hover { border-color: var(--line); }
-#aboutBtn img { height: 30px; width: auto; display: block; }
+#aboutDlg .about-mark .wordmark { font-size: 40px; }
+#aboutDlg .about-dex { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; }
+#aboutDlg .about-dex img { height: 28px; margin: 0; }
 #aboutDlg { position: fixed; inset: 0; z-index: 210; background: rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; }
 #aboutDlg .about-box { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px;
   width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; box-shadow: 0 16px 50px rgba(0,0,0,.35); }
-#aboutDlg .about-box img { height: 96px; width: auto; margin-bottom: 4px; }
 #aboutDlg .about-box strong { font-size: 18px; }
 #aboutDlg .about-box p { margin: 6px 0 0; line-height: 1.45; }
 #aboutDlg .about-box a { color: var(--accent); }

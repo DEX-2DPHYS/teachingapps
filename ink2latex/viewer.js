@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-06.0559';
-import { TextLayer } from './textboxes.js?v=2026-10-06.0559';
-import { drawImages } from './figures.js?v=2026-10-06.0559';
-import { initFullscreen } from './fullscreen.js?v=2026-10-06.0559';
-import { paneLayer } from './panes.js?v=2026-10-06.0559';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-06.0649';
+import { TextLayer } from './textboxes.js?v=2026-10-06.0649';
+import { drawImages } from './figures.js?v=2026-10-06.0649';
+import { initFullscreen } from './fullscreen.js?v=2026-10-06.0649';
+import { paneLayer } from './panes.js?v=2026-10-06.0649';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -86,7 +86,7 @@ async function openLecture() {
   $('#asgLink').href = `${BOARD_URL}?join=${encodeURIComponent(code || '')}&asg=1`;
   $('#lecTitle').textContent = lecture.title;
   $('#lecCourse').textContent = lecture.course_code;
-  document.title = `${lecture.title} · ink2latex`;
+  document.title = `${lecture.title} · DTUwrite`;
   await refreshList();
   const { data } = await sb.from('lectures').select('current_page').eq('id', lecture.id).maybeSingle();
   lecturerPage = data?.current_page ?? 0;
@@ -800,7 +800,8 @@ function renderMine() {
 $('#noteForm').addEventListener('submit', async e => {
   e.preventDefault();
   const raw = $('#noteText').value.trim();
-  if (!raw || !lecture) return;
+  if (!lecture) return;
+  if (!raw) { $('#noteText').focus(); setNoteStatus('Type a note first (start with C: for a comment or Q: for a question to the lecturer)'); return; }
   const { kind, text } = parseTyped(raw);
   try {
     await addMine(text, kind);
