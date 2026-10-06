@@ -1,16 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-06.0517';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0517';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0517';
-import { initSend } from './send.js?v=2026-10-06.0517';
-import { initStudent } from './student.js?v=2026-10-06.0517';
-import { initAssign } from './assign.js?v=2026-10-06.0517';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0517';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0517';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0517';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0517';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-06.0523';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0523';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0523';
+import { initSend } from './send.js?v=2026-10-06.0523';
+import { initStudent } from './student.js?v=2026-10-06.0523';
+import { initAssign } from './assign.js?v=2026-10-06.0523';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0523';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0523';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0523';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0523';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -329,6 +329,29 @@ document.addEventListener('pointerdown', e => {
   $('#pdfInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importSlides(f); });
   $('#figInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) insertFigure(f); });
   $('#htmlInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) insertHtml(f); });
+}
+
+// About: the DEX logo in the tool bar opens it. Closes with the button, Esc or a click outside.
+function openAboutDialog() {
+  $('#aboutDlg')?.remove();
+  const ver = new URL(import.meta.url).searchParams.get('v') || 'dev';
+  const d = document.createElement('div');
+  d.id = 'aboutDlg';
+  d.innerHTML = `<div class="about-box" role="dialog" aria-label="About ink2latex">
+      <img src="dex-logo.png" alt="DEX: Digital Experiments">
+      <strong>ink2latex</strong>
+      <div class="dim">An interactive digital whiteboard</div>
+      <p>Developed by Peter Bøggild (DTU) using Claude (Anthropic), to support teaching, interaction and
+        AI-supported coaching and transcription, based on advanced multimodal input with digital pens.</p>
+      <p><a href="https://dex-2dphys.github.io/" target="_blank" rel="noopener">DEX: Digital Experiments ↗</a></p>
+      <div class="about-act"><span class="dim">Version ${ver}</span><button data-a="close">Close</button></div>
+    </div>`;
+  document.body.appendChild(d);
+  const close = () => { d.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  d.addEventListener('pointerdown', e => { if (e.target === d) close(); });
+  d.querySelector('[data-a="close"]').addEventListener('click', close);
 }
 
 // Clear…: slides and figures, writing (ink and text boxes), or both; on this page or on all pages.
@@ -690,6 +713,7 @@ const fullscreen = initFullscreen({
   ],
 });
 $('#fsBtn').addEventListener('click', () => fullscreen.toggle());
+$('#aboutBtn').addEventListener('click', openAboutDialog);
 // no long-press menu on the board (tablets), except in a text box being typed in
 $('#boardWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
 $('#pageLabel').addEventListener('click', openPages);
@@ -1021,7 +1045,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0517');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0523');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
