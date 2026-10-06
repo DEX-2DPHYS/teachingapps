@@ -6,7 +6,7 @@
 <title>ink2latex</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-02.0003">
+<link rel="stylesheet" href="style.css?v=2026-10-06.0517">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -112,6 +112,11 @@
           <label class="check" title="When the page interpretation finds one expression split over several regions, group them and read them again together. Only the grouping changes, so this is safe for assessment."><input type="checkbox" id="autoMerge"> Group split expressions automatically</label>
           <label class="check" title="Off: context corrections are suggested on the cards (assessment use). On: they are applied, with an 'original' button to go back (whiteboard use)."><input type="checkbox" id="autoAccept"> Apply context corrections automatically</label>
           <label class="check" title="'= □' (an empty box) or '= ?' after an expression: calculated with math.js; '= □ AI' / '= ?AI': worked out by the AI"><input type="checkbox" id="autoEval"> Answer "= □" / "= ?" automatically</label>
+          <h4>Reading accuracy</h4>
+          <label class="check" title="Each region is sent at the page's own scale (letters keep their size relative to the rest of the page) with the neighbouring writing shown in grey. Off: the classic tight crop, enlarged to fill the image."><input type="checkbox" id="readContext"> Read regions in their page (true scale, neighbours in grey)</label>
+          <label class="check" title="Ink on the same written line joins one region across wider gaps, so an equation written with spaces is read as one expression rather than in pieces. Applies to new writing."><input type="checkbox" id="lineGroup"> Group whole lines</label>
+          <label class="check" title="Each region is read twice, from two different images. If the readings differ, the final model reads it a third time and the majority wins; a three-way split is flagged. Costs about twice as much per region (more when readings differ)."><input type="checkbox" id="twoReadings"> Two readings, a third when they differ</label>
+          <label class="check" title="'Interpret page' also reads the whole page independently, without seeing the region readings, and flags every region where the two differ. Doubles the cost of an interpretation."><input type="checkbox" id="pageCheck"> Independent page reading on 'Interpret page'</label>
           <label class="row student-only" title="Your lecturer asks students to pay for the AI themselves: your key for the engine you chose above (Claude: sk-ant-…, Mistral, OpenAI). Kept only in this browser and sent with each request; never stored by ink2latex.">Your own key <input type="password" id="ownKey" autocomplete="off" placeholder="paste your API key"></label>
           <div id="engineStatus" class="dim small"></div>
         </section>
@@ -206,6 +211,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-02.0003"></script>
+<script type="module" src="app.js?v=2026-10-06.0517"></script>
 </body>
 </html>

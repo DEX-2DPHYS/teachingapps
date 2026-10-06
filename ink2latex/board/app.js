@@ -1,15 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-02.0003';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-02.0003';
-import { initSend } from './send.js?v=2026-10-02.0003';
-import { initStudent } from './student.js?v=2026-10-02.0003';
-import { initAssign } from './assign.js?v=2026-10-02.0003';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-02.0003';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-02.0003';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-02.0003';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-02.0003';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-06.0517';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0517';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0517';
+import { initSend } from './send.js?v=2026-10-06.0517';
+import { initStudent } from './student.js?v=2026-10-06.0517';
+import { initAssign } from './assign.js?v=2026-10-06.0517';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0517';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0517';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0517';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0517';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -69,7 +70,10 @@ if (TOKEN) history.replaceState(null, '', location.pathname);
 
 const settings = Object.assign(
   { auto: true, liveModel: 'haiku', finalModel: 'sonnet', board: 'white', snap: true, panel: true, size: 3, orientation: 'portrait',
-    view: 'ink', autoInterp: true, autoAccept: false, autoEval: true, autoMerge: true },
+    view: 'ink', autoInterp: true, autoAccept: false, autoEval: true, autoMerge: true,
+    // robust reading: region shown in its page at true scale; whole lines grouped; two live readings
+    // (a third, final-model reading when they differ); an independent page reading on Interpret page
+    readContext: true, lineGroup: true, twoReadings: true, pageCheck: true },
   store.get('ink2latex.settings', {}),
 );
 const saveSettings = () => store.set('ink2latex.settings', settings);
@@ -701,6 +705,21 @@ function near(a, b, mx, my) {
   return a.x0 - mx <= b.x1 && b.x0 - mx <= a.x1 && a.y0 - my <= b.y1 && b.y0 - my <= a.y1;
 }
 
+// Lines, not fragments: two pieces of ink on the same written line (their boxes overlap vertically
+// by at least half the smaller height) belong together across a wider horizontal gap than ink on
+// different lines, so "F = ma" written with generous spaces is read as one expression, not three.
+// Ink on separate lines still needs the ordinary nearness (a derivation's lines stay one region
+// only when they are close, as before).
+const lineReach = h => clamp(2.6 * h, 50, 160);
+function sameLine(a, b) {
+  const ov = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+  return ov > 0.5 * Math.min(a.y1 - a.y0, b.y1 - b.y0);
+}
+function joinable(a, b, mx, my, h) {
+  if (near(a, b, mx, my)) return true;
+  return !!settings.lineGroup && sameLine(a, b) && near(a, b, Math.max(mx, lineReach(h)), 0);
+}
+
 function typicalHeight(strokes) {
   const h = strokes.filter(s => !s.shape).map(s => { const b = strokeBox(s); return b.y1 - b.y0; }).sort((a, b) => a - b);
   return h.length ? h[Math.floor(h.length / 2)] : 30;
@@ -749,7 +768,7 @@ function regroup() {
         // a fraction bar (long flat stroke) reaches further up and down: numerator and denominator join it
         const bar = isBar(nodes[i], h) || isBar(nodes[j], h);
         const vy = (burst ? 1.35 * my : my) * (bar ? 2.2 : 1);
-        if (near(nodes[i].box, nodes[j].box, burst ? 1.3 * mx : mx, vy)) parent[find(i)] = find(j);
+        if (joinable(nodes[i].box, nodes[j].box, burst ? 1.3 * mx : mx, vy, h)) parent[find(i)] = find(j);
       }
     }
     const groups = new Map();
@@ -939,7 +958,7 @@ function partsOf(b, page = curPage()) {
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const vy = my * (isBar(nodes[i], h) || isBar(nodes[j], h) ? 2.2 : 1);
-      if (near(nodes[i].box, nodes[j].box, mx, vy)) parent[find(i)] = find(j);
+      if (joinable(nodes[i].box, nodes[j].box, mx, vy, h)) parent[find(i)] = find(j);
     }
   }
   const groups = new Map();
@@ -1002,7 +1021,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-02.0003');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0517');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1048,18 +1067,109 @@ function contextFor(b, page) {
   return lines.join('\n');
 }
 
+// The images a region is read from.
+// primary: the region at the page's true scale with its neighbours in grey (Settings: "Read regions
+//   in their page"), or the classic tight, zoomed crop when that is off.
+// alt: a second, differently made image for the second reading: the same scale without neighbours
+//   (or the classic crop when the primary has no neighbours), so the two readings do not share
+//   every weakness of one picture.
+// A region whose parts were moved far apart is drawn without neighbours (its window would be
+// mostly other writing).
+function spreadOut(b, page) {
+  const parts = partsOf(b, page);
+  if (parts.length < 2) return false;
+  const area = x => Math.max(1, (x.x1 - x.x0) * (x.y1 - x.y0));
+  return area(unionBox(parts.map(p => p.box))) > 4 * parts.reduce((a, p) => a + area(p.box), 0);
+}
+// What the AI core behind this board understands (sent with the engine list). Until it is known,
+// and for an older core that does not report it (a cloud function not yet redeployed), regions are
+// sent the classic way: its prompt does not know that grey ink is context only.
+let coreFeatures = {};
+function regionImages(b, page) {
+  const strokes = strokesOf(b, page);
+  if (!settings.readContext || !coreFeatures.context) return { primary: renderCrop(strokes), alt: renderCrop(strokes) };
+  const opts = { lineH: typicalHeight(page.strokes), pageW: board.pageW, pageH: board.pageH };
+  const withCtx = !spreadOut(b, page);
+  const primary = renderRegion(page.strokes, strokes, { ...opts, context: withCtx });
+  const alt = withCtx && primary.neighbours ? renderRegion(page.strokes, strokes, { ...opts, context: false }) : renderCrop(strokes);
+  return { primary, alt };
+}
+
+// Syntax checks on a reading. They never change what was read: a parse failure asks the model to
+// repair the LaTeX syntax only, and brackets that do not balance are only pointed out (the writer
+// may really have left one open, which is the writer's business).
+const mathParts = r => !r ? [] : r.kind === 'math' ? [r.latex]
+  : ['text', 'mixed'].includes(r.kind) ? [...String(r.text || '').matchAll(/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g)].map(m => m[1] ?? m[2]) : [];
+function latexProblem(r) {
+  for (const s of mathParts(r)) {
+    if (!s || !s.trim()) continue;
+    try { katex.renderToString(s, { throwOnError: true, strict: false }); }
+    catch (e) { return String(e.message || e).replace(/^KaTeX parse error:\s*/, '').slice(0, 200); }
+  }
+  return null;
+}
+function unbalancedBrackets(r) {
+  for (const s of mathParts(r)) {
+    // \left( ... \right) and \{ \} are KaTeX's business (it fails on a mismatch); count the plain ones
+    const t = String(s || '').replace(/\\(left|right|big|Big|bigg|Bigg)[lr]?\s*(\\[{}]|[()[\]|.])/g, '').replace(/\\[{}]/g, '');
+    const n = c => t.split(c).length - 1;
+    if (n('(') !== n(')')) return `Round brackets do not balance as read (${n('(')} open, ${n(')')} closed): check the ink`;
+    if (n('[') !== n(']') && !/[[(][^[\]()]*,[^[\]()]*[)\]]/.test(t)) return `Square brackets do not balance as read (${n('[')} open, ${n(']')} closed): check the ink`;
+  }
+  return null;
+}
+
+// Live readings are made twice from two different images. When they agree the reading stands;
+// when they differ, the final model reads the primary image and the majority wins (all three
+// different: the final model's reading, with the alternatives listed as ambiguities). Explicit
+// final-model readings (Finalize, re-run) are made once.
 async function transcribe(b, modelKey) {
   const page = pageOf(b);
   const strokes = strokesOf(b, page);
   if (!strokes.length) return;
   const ver = ++b.version;
-  const { image, mediaType, width, height } = renderCrop(strokes);
+  const imgs = regionImages(b, page);
   b.status = 'busy'; b.model = modelKey; b.error = null;
   renderAll();
+  const context = contextFor(b, page), note = b.comment || '';
+  const read = (img, model, extra = {}) => api({ task: 'ink', model, image: img.image, mediaType: img.mediaType, width: img.width, height: img.height, context, note, ...extra });
   try {
-    const r = await api({ task: 'ink', model: modelKey, image, mediaType, width, height, context: contextFor(b, page), note: b.comment || '' });
+    const two = settings.twoReadings && modelKey === settings.liveModel && imgs.alt;
+    const runs = await Promise.all([read(imgs.primary, modelKey), ...(two ? [read(imgs.alt, modelKey)] : [])]);
     if (b.version !== ver) return;
-    Object.assign(b, { result: r.data, ms: r.ms, status: 'ok', edit: null, suggest: null, orig: null });
+    let r = runs[0], model = modelKey, agreement = two ? 'agree' : null;
+    if (two && !sameReading(runs[0].data, runs[1].data)) {
+      const third = await read(imgs.primary, settings.finalModel);
+      if (b.version !== ver) return;
+      const shown = x => oneLine(readingOf(x.data) || x.data.kind, 80);
+      const backed = runs.find(x => sameReading(x.data, third.data));
+      r = { ...third, data: { ...third.data, uncertain: [...(third.data.uncertain || [])] } };
+      model = settings.finalModel;
+      if (backed) {
+        agreement = 'majority';
+        const other = runs.find(x => x !== backed);
+        r.data.uncertain.push(`Two readings differed; a third agreed with this one (the other read: ${shown(other)})`);
+      } else {
+        agreement = 'split';
+        r.data.uncertain.push(`Three readings disagree: ${runs.map(shown).join(' | ')} | ${shown(third)}`);
+      }
+      r.ms = Math.max(...runs.map(x => x.ms)) + third.ms;
+    }
+    // syntax: a reading that does not parse is read once more with the error ("repair the LaTeX
+    // syntax only"); if that does not parse either, the first reading stays, flagged
+    const problem = latexProblem(r.data);
+    if (problem) {
+      const again = await read(imgs.primary, model, { fix: { latex: readingOf(r.data), error: problem } }).catch(() => null);
+      if (b.version !== ver) return;
+      if (again && !latexProblem(again.data)) {
+        r = { ...again, ms: r.ms + again.ms, data: { ...again.data, uncertain: [...(again.data.uncertain || []), `LaTeX repaired on a second reading (the first did not parse: ${problem})`] } };
+      } else {
+        r = { ...r, data: { ...r.data, uncertain: [...(r.data.uncertain || []), `The LaTeX does not render: ${problem}`] } };
+      }
+    }
+    const unb = unbalancedBrackets(r.data);
+    if (unb) r = { ...r, data: { ...r.data, uncertain: [...(r.data.uncertain || []), unb] } };
+    Object.assign(b, { result: r.data, ms: r.ms, model, agreement, pageAgree: null, status: 'ok', edit: null, suggest: null, orig: null });
   } catch (err) {
     if (b.version !== ver) return;
     Object.assign(b, { status: 'error', error: err.message });
@@ -1370,23 +1480,62 @@ async function interpretPage() {
   interpBusy = true;
   renderInterp();
   try {
-    const r = await api({ task: 'board', model: settings.finalModel, image, mediaType, width, height, context });
+    // the context interpretation (which starts from the region readings) and, in parallel, an
+    // independent reading of the same page image that is NOT shown the region readings
+    const [r, blind] = await Promise.all([
+      api({ task: 'board', model: settings.finalModel, image, mediaType, width, height, context }),
+      settings.pageCheck && coreFeatures.pageread ? api({ task: 'pageread', model: settings.finalModel, image, mediaType, width, height }).catch(() => null) : null,
+    ]);
     const regionIds = list.map(o => o.b.id);
     activeErr = null; board.errorMarks = []; board.request();
-    page.interp = { data: r.data, model: settings.finalModel, ms: r.ms, regionIds, sig: page.strokes.map(s => s.id).join(','), stateSig: interpSig(page) };
+    page.interp = { data: r.data, model: settings.finalModel, ms: r.ms, regionIds, sig: page.strokes.map(s => s.id).join(','), stateSig: interpSig(page), checked: !!blind };
     for (const reg of r.data.regions) {
       const b = page.blocks.find(x => x.id === regionIds[reg.region - 1]);
       if (b && reg.changed && reg.reading !== sourceOf(b) && !b.confirmed) b.suggest = { kind: reg.reading_kind, reading: reg.reading, reason: reg.reason };
     }
+    if (blind) reconcilePageReading(page, regionIds, blind.data.regions || []);
     // merges only change the grouping (the merged ink is read again), so they can be applied automatically
     if (settings.autoMerge || settings.autoAccept) r.data.merges.forEach(m => applyMerge(page, m));
-    if (settings.autoAccept) page.blocks.filter(b => b.suggest).forEach(acceptSuggestion);
+    // a suggestion that only one of the two page readings supports is never applied automatically
+    if (settings.autoAccept) page.blocks.filter(b => b.suggest && !b.suggest.weak).forEach(acceptSuggestion);
   } catch (err) {
     page.interp = { error: err.message };
   }
   interpBusy = false;
   renderAll();
   saveSoon();
+}
+
+// Compare the independent page reading with each region. Three outcomes per region:
+// - it agrees with the current reading: the region is marked as confirmed by the page reading;
+// - the context interpretation already suggested a change: the suggestion is strengthened when the
+//   independent reading agrees with it, and made "weak" (never applied automatically) when the
+//   independent reading sides with the current reading instead;
+// - otherwise, when it differs: a weak suggestion (shown on the card, never applied automatically).
+// Regions that were confirmed or edited by hand are the writer's word and are left alone.
+const asResult = (kind, reading) => ({ kind, latex: kind === 'math' ? reading : '', text: kind === 'math' ? '' : reading });
+function reconcilePageReading(page, regionIds, regions) {
+  for (const reg of regions) {
+    const b = page.blocks.find(x => x.id === regionIds[reg.region - 1]);
+    if (!b || !b.result || b.confirmed || b.edit != null) continue;
+    const indep = asResult(reg.reading_kind, reg.reading);
+    const agreesNow = sameReading(b.result, indep);
+    b.pageAgree = agreesNow;
+    if (b.suggest) {
+      if (sameReading(asResult(b.suggest.kind, b.suggest.reading), indep)) {
+        b.suggest.reason = `${b.suggest.reason ? b.suggest.reason + ' ' : ''}An independent reading of the page agrees.`;
+      } else if (agreesNow) {
+        b.suggest.weak = true;
+        b.suggest.reason = `${b.suggest.reason ? b.suggest.reason + ' ' : ''}But an independent reading of the page agrees with the current reading.`;
+      }
+      continue;
+    }
+    if (agreesNow) continue;
+    b.suggest = {
+      kind: reg.reading_kind, reading: reg.reading, weak: true, label: 'An independent reading of the page gives',
+      reason: (reg.uncertain || []).length ? `Read from the whole page without the region readings. Unsure: ${reg.uncertain.join('; ')}` : 'Read from the whole page without the region readings.',
+    };
+  }
 }
 
 // keep what the region-by-region transcription said, so a context correction can be undone
@@ -1718,11 +1867,21 @@ function sourceOf(b) {
   return b.edit ?? (r.kind === 'math' ? r.latex : r.text);
 }
 
+// how the reading was reached, for the card header (with a tooltip)
+function agreementTag(b) {
+  const tags = [];
+  if (b.agreement === 'agree') tags.push(['2 readings agree', 'Two readings from two different images of this region gave the same result']);
+  if (b.agreement === 'majority') tags.push(['2 of 3 readings', 'Two readings differed; a third reading by the final model agreed with this one']);
+  if (b.agreement === 'split') tags.push(['readings disagree', 'Three readings gave three different results: check this one']);
+  if (b.pageAgree === true) tags.push(['page reading agrees', 'An independent reading of the whole page gives the same result']);
+  return tags.map(([t, tip]) => ` · <span class="agree-tag ${b.agreement === 'split' ? 'split' : ''}" title="${esc(tip)}">${t}</span>`).join('');
+}
+
 function suggestHtml(b) {
   const s = b.suggest;
   if (!s) return '';
   const shown = s.kind === 'math' ? tex(s.reading, true) : renderMixed(s.reading);
-  return `<div class="suggest">In context this reads: ${shown}<div class="why">${esc(s.reason)}</div>
+  return `<div class="suggest${s.weak ? ' weak' : ''}">${esc(s.label || 'In context this reads')}: ${shown}<div class="why">${esc(s.reason)}</div>
     <div class="actions"><button data-act="accept">Accept</button><button data-act="dismiss">Dismiss</button></div></div>`;
 }
 
@@ -1732,7 +1891,7 @@ function fillCard(el, b, num) {
   const r = b.result;
   const meta = b.status === 'busy'
     ? `<span class="busy">${MODELS[b.model]} …</span>`
-    : b.status === 'ok' && b.model ? `${MODELS[b.model] || b.model}${b.ms ? ` · ${b.ms} ms` : ''}${b.edit != null ? ' · edited' : ''}` : '';
+    : b.status === 'ok' && b.model ? `${MODELS[b.model] || b.model}${b.ms ? ` · ${b.ms} ms` : ''}${b.edit != null ? ' · edited' : ''}${agreementTag(b)}` : '';
   const head = `<span class="num">${num}</span><span class="kind">${r ? r.kind : ''}</span><span class="meta">${meta}</span>`;
   if (focused) {
     el.querySelector('.card-head').innerHTML = head;
@@ -1976,7 +2135,7 @@ function renderAll() {
     // redraw a card only when something shown on it changed (typesetting every card is slow)
     const key = JSON.stringify([i, b.status, b.model, b.ms, b.result, b.edit, b.confirmed, b.comment, b.suggest,
       b.answer?.status, b.answer?.data, b.answer?.error, !!b.figure, b.figureBusy, b.figureError, b.error, !!b.orig,
-      parts.length, settings.liveModel, settings.finalModel]);
+      parts.length, settings.liveModel, settings.finalModel, b.agreement, b.pageAgree]);
     if (el.dataset.key !== key || el.contains(document.activeElement)) {
       fillCard(el, b, i + 1);
       el.dataset.key = key;
@@ -2300,7 +2459,7 @@ function serialize(withPhotos) {
     pages: state.pages.map(p => ({
       uid: p.uid,
       strokes: p.strokes.map(s => ({ id: s.id, size: s.size, color: s.color, pen: s.pen, shape: s.shape, pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
-      blocks: p.blocks.map(b => ({ id: b.id, strokeIds: b.strokeIds, sig: b.sig, status: b.status === 'busy' ? 'stale' : b.status, model: b.model, result: b.result, edit: b.edit, confirmed: b.confirmed, figure: b.figure, ms: b.ms, comment: b.comment, suggest: b.suggest, orig: b.orig || null, pieces: isGroup(b) ? piecesOf(b) : null, answer: b.answer && b.answer.status !== 'busy' ? b.answer : null })),
+      blocks: p.blocks.map(b => ({ id: b.id, strokeIds: b.strokeIds, sig: b.sig, status: b.status === 'busy' ? 'stale' : b.status, model: b.model, result: b.result, edit: b.edit, confirmed: b.confirmed, figure: b.figure, ms: b.ms, comment: b.comment, suggest: b.suggest, orig: b.orig || null, agreement: b.agreement || null, pageAgree: b.pageAgree ?? null, pieces: isGroup(b) ? piecesOf(b) : null, answer: b.answer && b.answer.status !== 'busy' ? b.answer : null })),
       interp: p.interp && !p.interp.error ? p.interp : null,
       texts: p.texts || [],
       images: p.images || [],
@@ -2601,7 +2760,7 @@ viewMenu.addEventListener('change', e => {
   if (e.target.id === 'showStudent') { settings.showStudent = e.target.checked; saveSettings(); send?.renderDots(); }
 });
 
-for (const id of ['autoInterp', 'autoAccept', 'autoEval', 'autoMerge']) {
+for (const id of ['autoInterp', 'autoAccept', 'autoEval', 'autoMerge', 'readContext', 'lineGroup', 'twoReadings', 'pageCheck']) {
   const el = $('#' + id);
   el.checked = settings[id];
   el.addEventListener('change', () => { settings[id] = el.checked; saveSettings(); if (id === 'autoInterp') scheduleInterpret(); });
@@ -2657,6 +2816,7 @@ for (const id of ['liveModel', 'finalModel']) {
 // (in the cloud this waits for the 📡 Send login: checkEngines runs again after signing in)
 function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
   if (e.error) throw new Error(e.error);
+  coreFeatures = e.features || {}; // an older AI core reports none: no grey context, no page reading
   for (const id of ['liveModel', 'finalModel']) {
     for (const g of $('#' + id).querySelectorAll('optgroup')) {
       const on = !!e[g.dataset.engine];

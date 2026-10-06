@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-02.0003';
+import { recognize } from './shapes.js?v=2026-10-06.0517';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -118,6 +118,64 @@ export function renderCrop(strokes, maxDim = 1024, labels = [], area = null) {
   // map: image pixel -> page units is  x / scale + ox
   return { image: url.split(',')[1], mediaType: 'image/png', width: cw, height: ch, dataUrl: url,
     map: { scale, ox: box.x0 - pad, oy: box.y0 - pad } };
+}
+
+// Render one region for transcription, the way a photo of the page would show it:
+// - true scale: every region is drawn at the same fixed PX_PER_UNIT, never zoomed to fill the
+//   image, so a small z stays small next to a capital Z elsewhere, and a region looks the same
+//   size whenever it is read (a scale derived from the page's current writing would change as the
+//   page fills up);
+// - in its page: neighbouring ink inside a margin around the region is drawn in light grey, so the
+//   model sees what surrounds the region (the rest of a line, a numerator above, the topic) but
+//   can tell what it is asked to read (black).
+// lineH: the typical letter height on the page (page units), which only sizes the margin.
+// context: draw the grey neighbours. Regions whose parts were moved far apart are drawn without
+// neighbours (the window would be mostly unrelated writing).
+// The A4 page is 1200 units wide; ordinary handwriting is 25-60 units tall, i.e. 30-75 px here.
+const PX_PER_UNIT = 1.25;
+const GREY = '#b4b4b4';
+export function renderRegion(pageStrokes, regionStrokes, { lineH = 30, context = true, maxDim = 1400, pageW = Infinity, pageH = Infinity } = {}) {
+  const box = unionBox(regionStrokes.map(strokeBox));
+  let scale = PX_PER_UNIT;
+  // margins in page units: a few letters sideways, a line or two up and down. The median stroke
+  // height (lineH) underestimates a line, since most strokes are parts of letters, hence the floors.
+  let mx = context ? Math.max(150, 3 * lineH) : 16, my = context ? Math.max(90, 1.5 * lineH) : 16;
+  const w0 = box.x1 - box.x0, h0 = box.y1 - box.y0;
+  // too big at this scale: first give up margin, then (a very large region) scale
+  const fit = () => Math.max((w0 + 2 * mx) * scale, (h0 + 2 * my) * scale);
+  if (fit() > maxDim) { const k = Math.max(0, (maxDim / scale - Math.max(w0, h0)) / 2); mx = Math.min(mx, Math.max(16, k)); my = Math.min(my, Math.max(16, k)); }
+  if (fit() > maxDim) scale = maxDim / Math.max(w0 + 2 * mx, h0 + 2 * my);
+  const win = {
+    x0: Math.max(0, box.x0 - mx), y0: Math.max(0, box.y0 - my),
+    x1: Math.min(pageW, box.x1 + mx), y1: Math.min(pageH, box.y1 + my),
+  };
+  // keep a white border around the region's own ink even at the page edge
+  win.x0 = Math.min(win.x0, box.x0 - 8); win.y0 = Math.min(win.y0, box.y0 - 8);
+  win.x1 = Math.max(win.x1, box.x1 + 8); win.y1 = Math.max(win.y1, box.y1 + 8);
+  const cw = Math.max(1, Math.round((win.x1 - win.x0) * scale)), ch = Math.max(1, Math.round((win.y1 - win.y0) * scale));
+  const c = document.createElement('canvas');
+  c.width = cw; c.height = ch;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, cw, ch);
+  g.setTransform(scale, 0, 0, scale, -win.x0 * scale, -win.y0 * scale);
+  const own = new Set(regionStrokes);
+  let neighbours = 0;
+  if (context) {
+    g.fillStyle = GREY;
+    for (const s of pageStrokes) {
+      if (own.has(s)) continue;
+      const b = strokeBox(s);
+      if (b.x1 < win.x0 || b.x0 > win.x1 || b.y1 < win.y0 || b.y0 > win.y1) continue;
+      g.fill(strokePath(s));
+      neighbours++;
+    }
+  }
+  g.fillStyle = '#000';
+  for (const s of regionStrokes) g.fill(strokePath(s));
+  const url = c.toDataURL('image/png');
+  return { image: url.split(',')[1], mediaType: 'image/png', width: cw, height: ch, dataUrl: url, neighbours,
+    map: { scale, ox: win.x0, oy: win.y0 } };
 }
 
 // Full page image for printing (always dark ink on white)
