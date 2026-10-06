@@ -6,7 +6,7 @@
 <title>ink2latex</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-06.0523">
+<link rel="stylesheet" href="style.css?v=2026-10-06.0537">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -60,11 +60,19 @@
       </div>
     </div>
     <button id="boxesBtn" title="Region boxes and numbers (B cycles): all / only the one under the pen / off (clean page)">▢ Boxes</button>
+    <button id="previewBtn" title="Hold to preview: every region shows its transcription in place of the ink while you hold this button or the Space key; let go to see the ink again">👁<span class="lbl"> Preview</span></button>
   </div>
 
   <div class="group">
     <button id="htmlBtn" title="Use the HTML on this page (click, drag, type in it). Press again, choose a pen tool, or press I, to write on it." hidden>🖱<span class="lbl"> Interact</span></button>
     <label class="check live-toggle" title="Live: transcribe automatically when you pause (model in ⚙ Settings)"><input type="checkbox" id="auto" checked> Live</label>
+    <select id="readMode" title="How carefully the AI reads">
+      <option value="fast">Fast</option>
+      <option value="balanced">Balanced</option>
+      <option value="careful">Careful</option>
+      <option value="custom" hidden disabled>Custom</option>
+    </select>
+    <span id="toolCost" class="dim small" title="Estimated AI cost this session"></span>
     <button id="interpret" title="Read the whole page in context (final model): fixes misreadings, groups split expressions, writes a clean document. Never corrects the maths.">Interpret</button>
     <div class="menu">
       <button id="figBtn" title="Slides and figures: import a PDF (each page becomes a slide to write on), or put an image on this page">🖼<span class="lbl"> Figures</span></button>
@@ -200,6 +208,9 @@
     <div id="panelBody">
       <div id="panelHead">
         <strong>Transcription</strong>
+        <span id="cardFilter" class="joined" title="Show every card, or only the regions that need a look (uncertain, readings disagree, a suggestion, an error)">
+          <button data-f="all">All</button><button data-f="attention">Needs attention</button>
+        </span>
         <span id="cost" title="API cost this session"></span>
       </div>
       <div id="interpCard"></div>
@@ -212,6 +223,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-06.0523"></script>
+<script type="module" src="app.js?v=2026-10-06.0537"></script>
 </body>
 </html>

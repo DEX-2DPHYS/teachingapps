@@ -1,16 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-06.0523';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0523';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0523';
-import { initSend } from './send.js?v=2026-10-06.0523';
-import { initStudent } from './student.js?v=2026-10-06.0523';
-import { initAssign } from './assign.js?v=2026-10-06.0523';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0523';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0523';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0523';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0523';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-06.0537';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0537';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0537';
+import { initSend } from './send.js?v=2026-10-06.0537';
+import { initStudent } from './student.js?v=2026-10-06.0537';
+import { initAssign } from './assign.js?v=2026-10-06.0537';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0537';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0537';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0537';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0537';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -72,11 +72,13 @@ const settings = Object.assign(
   { auto: true, liveModel: 'haiku', finalModel: 'sonnet', board: 'white', snap: true, panel: true, size: 3, orientation: 'portrait',
     view: 'ink', autoInterp: true, autoAccept: false, autoEval: true, autoMerge: true,
     // robust reading: region shown in its page at true scale; whole lines grouped; two live readings
-    // (a third, final-model reading when they differ); an independent page reading on Interpret page
-    readContext: true, lineGroup: true, twoReadings: true, pageCheck: true },
+    // (a third, final-model reading when they differ); an independent page reading on Interpret page.
+    // twoReadings + pageCheck are what the Fast / Balanced / Careful selector sets; Balanced to start.
+    readContext: true, lineGroup: true, twoReadings: true, pageCheck: false, cardFilter: 'all' },
   store.get('ink2latex.settings', {}),
 );
 const saveSettings = () => store.set('ink2latex.settings', settings);
+let previewHeld = false; // Preview held down (setPreview); read by renderTypeset
 
 // ----------------------------------------------------------------------------------- state
 const newPage = () => ({ uid: crypto.randomUUID(), strokes: [], undo: [], redo: [], blocks: [], interp: null, texts: [], images: [], panes: [] });
@@ -1045,7 +1047,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0523');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0537');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1901,6 +1903,22 @@ function agreementTag(b) {
   return tags.map(([t, tip]) => ` · <span class="agree-tag ${b.agreement === 'split' ? 'split' : ''}" title="${esc(tip)}">${t}</span>`).join('');
 }
 
+// What a region's reading asks of you, for the outlines on the page and the panel filter:
+// 'bad' = an error, or readings that disagree; 'warn' = something flagged (uncertain parts, a
+// suggestion, two of three readings, the page reading differs); 'good' = read with nothing flagged
+// or confirmed by you; '' = nothing to judge yet (being read, or empty).
+function regionState(b) {
+  if (b.status === 'busy') return '';
+  if (b.status === 'error') return 'bad';
+  const r = b.result;
+  if (!r || r.kind === 'empty') return '';
+  if (b.confirmed) return 'good';
+  if (b.agreement === 'split') return 'bad';
+  if (b.suggest || r.uncertain?.length || b.agreement === 'majority' || b.pageAgree === false) return 'warn';
+  return 'good';
+}
+const needsAttention = b => ['warn', 'bad'].includes(regionState(b));
+
 function suggestHtml(b) {
   const s = b.suggest;
   if (!s) return '';
@@ -2106,8 +2124,9 @@ function renderFrames(list) {
       f.style.top = (box.y0 * s - 5) + 'px';
       f.style.width = ((box.x1 - box.x0) * s + 10) + 'px';
       f.style.height = ((box.y1 - box.y0) * s + 10) + 'px';
+      const st = regionState(b);
       f.className = 'frame' + (k > 0 ? ' part' : '') + (b.status === 'busy' ? ' busy' : '') + (b.status === 'error' ? ' error' : '')
-        + (b.confirmed ? ' confirmed' : '') + (hoverId === b.id ? ' hover' : '');
+        + (b.confirmed ? ' confirmed' : '') + (st ? ' st-' + st : '') + (hoverId === b.id ? ' hover' : '');
       f.querySelector('.badge').textContent = parts.length > 1 ? `${i + 1}${'abcdefghij'[k] || ''}` : i + 1;
     });
   });
@@ -2118,7 +2137,10 @@ function renderFrames(list) {
 // scaled to the size of the handwriting. Figures stay as ink.
 function renderTypeset(list) {
   const layer = $('#typeset');
-  const view = settings.view;
+  // holding Preview (button or Space) puts the transcriptions in place of the ink, so holding and
+  // releasing compares the two at a glance (dimmed ink underneath peeks out wherever the typeset
+  // is narrower than the handwriting, which reads as a mistake that is not there)
+  const view = previewHeld ? 'typeset' : settings.view;
   board.hiddenIds = new Set();
   board.dimIds = new Set();
   layer.innerHTML = '';
@@ -2141,6 +2163,36 @@ function renderTypeset(list) {
     for (const id of b.strokeIds) (view === 'typeset' ? board.hiddenIds : board.dimIds).add(id);
   }
   board.request();
+}
+
+// Panel filter: all cards, or only the regions that need a look. The cards are only hidden, not
+// rebuilt, so switching is instant and nothing typed into a card is lost.
+function applyCardFilter(list) {
+  const cards = $('#cards');
+  const only = settings.cardFilter === 'attention';
+  let n = 0;
+  for (const { b } of list) {
+    const need = needsAttention(b);
+    if (need) n++;
+    cardEls.get(b.id)?.classList.toggle('filtered-out', only && !need);
+  }
+  const msg = cards.querySelector('.filter-msg');
+  if (only && list.length && !n) {
+    if (!msg) cards.insertAdjacentHTML('beforeend', '<p class="filter-msg">Nothing on this page needs attention.</p>');
+  } else msg?.remove();
+  for (const btn of $('#cardFilter').querySelectorAll('button')) {
+    btn.classList.toggle('active', btn.dataset.f === (only ? 'attention' : 'all'));
+    if (btn.dataset.f === 'attention') btn.textContent = n ? `Needs attention (${n})` : 'Needs attention';
+  }
+}
+
+// Hold to preview: every region's transcription over the ink, for as long as the button or Space is held
+function setPreview(on) {
+  if (previewHeld === on) return;
+  previewHeld = on;
+  document.body.classList.toggle('previewing', on);
+  $('#previewBtn').classList.toggle('active', on);
+  renderTypeset(layoutOf());
 }
 
 // Panel and page overlays. While the pen is on the page this is held back and done when it lifts
@@ -2170,6 +2222,7 @@ function renderAll() {
   for (const [id, el] of cardEls) if (!keep.has(id)) { el.remove(); cardEls.delete(id); }
   if (!list.length) cards.innerHTML = '<p class="dim">Nothing written on this page yet.</p>';
   else cards.querySelector('p.dim')?.remove();
+  applyCardFilter(list);
   renderFrames(list);
   renderTypeset(list);
   renderAnswers(list);
@@ -2245,6 +2298,10 @@ function renderCost() {
   const el = $('#cost');
   el.textContent = parts.join('   ');
   el.title = state.calls ? `Estimated API cost this session: $${state.cost.toFixed(4)} in ${state.calls} calls (the providers' consoles show the actual charges)` : '';
+  // the same total beside the Fast / Balanced / Careful selector, where the choice is made
+  const tc = $('#toolCost');
+  tc.textContent = state.calls ? money(state.cost) : '';
+  tc.title = el.title;
 }
 
 // ----------------------------------------------------------------------------------- photos
@@ -2787,8 +2844,62 @@ viewMenu.addEventListener('change', e => {
 for (const id of ['autoInterp', 'autoAccept', 'autoEval', 'autoMerge', 'readContext', 'lineGroup', 'twoReadings', 'pageCheck']) {
   const el = $('#' + id);
   el.checked = settings[id];
-  el.addEventListener('change', () => { settings[id] = el.checked; saveSettings(); if (id === 'autoInterp') scheduleInterpret(); });
+  el.addEventListener('change', () => {
+    settings[id] = el.checked; saveSettings();
+    if (id === 'autoInterp') scheduleInterpret();
+    if (id === 'twoReadings' || id === 'pageCheck') applyReadMode();
+  });
 }
+
+// Fast / Balanced / Careful beside Live: a shortcut for the two settings that decide how many
+// readings are paid for. Changing either checkbox by hand shows 'Custom'.
+const READ_MODES = {
+  fast: { twoReadings: false, pageCheck: false },
+  balanced: { twoReadings: true, pageCheck: false },
+  careful: { twoReadings: true, pageCheck: true },
+};
+const READ_TIPS = {
+  fast: 'Fast: one reading per region (about 0.2 ¢ each with the default models)',
+  balanced: 'Balanced: two readings per region from two different images, a third by the final model when they differ (about 0.7 ¢ per region)',
+  careful: 'Careful: as Balanced, and Interpret page also reads the whole page independently and flags every region where the two differ (an interpretation costs about twice as much)',
+  custom: 'Custom: set by hand under ⚙ Settings → Reading accuracy',
+};
+function readModeOf() {
+  return Object.keys(READ_MODES).find(m => READ_MODES[m].twoReadings === !!settings.twoReadings
+    && READ_MODES[m].pageCheck === !!settings.pageCheck) || 'custom';
+}
+function applyReadMode() {
+  const sel = $('#readMode');
+  const m = readModeOf();
+  sel.querySelector('[value=custom]').hidden = m !== 'custom';
+  sel.value = m;
+  sel.title = `How carefully the AI reads. ${READ_TIPS[m]}`;
+  $('#twoReadings').checked = !!settings.twoReadings;
+  $('#pageCheck').checked = !!settings.pageCheck;
+}
+$('#readMode').addEventListener('change', e => {
+  const m = e.target.value;
+  if (!READ_MODES[m]) return;
+  Object.assign(settings, READ_MODES[m]);
+  saveSettings();
+  applyReadMode();
+  toast(READ_TIPS[m]);
+});
+applyReadMode();
+
+// panel filter: all cards / only those that need attention
+$('#cardFilter').addEventListener('click', e => {
+  const f = e.target.closest('button')?.dataset.f;
+  if (!f) return;
+  settings.cardFilter = f; saveSettings();
+  applyCardFilter(layoutOf());
+});
+
+// Preview: held, not toggled. Pointer on the button, or the Space key anywhere outside a text field.
+const previewBtn = $('#previewBtn');
+previewBtn.addEventListener('pointerdown', e => { e.preventDefault(); previewBtn.setPointerCapture?.(e.pointerId); setPreview(true); });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) previewBtn.addEventListener(ev, () => setPreview(false));
+window.addEventListener('blur', () => setPreview(false)); // a window that loses focus never sees the key go up
 const settingsMenu = $('#settingsMenu');
 $('#settingsBtn').addEventListener('click', e => { e.stopPropagation(); settingsMenu.hidden = !settingsMenu.hidden; });
 
@@ -2979,6 +3090,7 @@ $('#loadInput').addEventListener('change', async e => {
 // keyboard
 document.addEventListener('keydown', e => {
   if (e.target.isContentEditable || (e.target.closest && e.target.closest('textarea, input, select'))) return;
+  if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setPreview(true); return; } // hold Space = preview
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); board.undo(); }
   else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); board.redo(); }
@@ -3010,6 +3122,8 @@ document.addEventListener('keydown', e => {
     if (hit) { e.preventDefault(); requestAnswer(hit.b); }
   }
 });
+// Space up ends the preview (and must not also click whatever button has focus)
+document.addEventListener('keyup', e => { if (e.key === ' ' && previewHeld) { e.preventDefault(); setPreview(false); } });
 
 // ----------------------------------------------------------------------------------- start
 board.setPage(curPage());

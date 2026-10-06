@@ -209,6 +209,16 @@ body[data-board="black"] #hint { color: #9fb3a8; }
 /* busy (being read): a steady orange dashed frame; no animation, which would repaint the page continuously */
 .frame.busy { border-color: rgba(178, 106, 0, .75); border-style: dotted; }
 .frame.error { border-color: rgba(198, 40, 40, .7); }
+/* reading status (regionState): green = nothing flagged, amber = needs a look, red = readings
+   disagree or an error. Confirmed (below) adds the solid line. */
+.frame.st-good { border-color: rgba(46, 125, 50, .45); }
+.frame.st-warn { border-color: rgba(178, 106, 0, .8); border-width: 2px; }
+.frame.st-bad { border-color: rgba(198, 40, 40, .85); border-width: 2px; }
+.frame.st-good .badge { background: var(--ok); }
+.frame.st-warn .badge { background: var(--warn); }
+.frame.st-bad .badge { background: var(--err); }
+.frame.part.st-warn .badge { background: var(--panel); color: var(--warn); border-color: var(--warn); }
+.frame.part.st-bad .badge { background: var(--panel); color: var(--err); border-color: var(--err); }
 .frame.confirmed { border-style: solid; border-color: rgba(46, 125, 50, .55); }
 .frame.hl { border-width: 2px; border-color: rgba(255, 160, 0, .9); }
 .frame .badge {
@@ -570,3 +580,13 @@ body[data-board="black"] #asgChip { background: #4a3a14; color: #ffe7a6; }
 #aboutDlg .about-box p { margin: 6px 0 0; line-height: 1.45; }
 #aboutDlg .about-box a { color: var(--accent); }
 #aboutDlg .about-act { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 10px; font-size: 12px; }
+
+/* Fast / Balanced / Careful beside Live, and the session cost beside it */
+#readMode { padding: 2px 4px; }
+#toolCost { font-size: 12px; min-width: 0; }
+/* panel filter: All / Needs attention */
+#cardFilter button { padding: 1px 8px; font-size: 12px; }
+#cardFilter button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.card.filtered-out { display: none; }
+.filter-msg { color: var(--ok); font-size: 13px; }
+#previewBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
