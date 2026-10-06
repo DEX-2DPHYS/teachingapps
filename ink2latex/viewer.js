@@ -2,15 +2,15 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-06.0537';
-import { TextLayer } from './textboxes.js?v=2026-10-06.0537';
-import { drawImages } from './figures.js?v=2026-10-06.0537';
-import { initFullscreen } from './fullscreen.js?v=2026-10-06.0537';
-import { paneLayer } from './panes.js?v=2026-10-06.0537';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-06.0545';
+import { TextLayer } from './textboxes.js?v=2026-10-06.0545';
+import { drawImages } from './figures.js?v=2026-10-06.0545';
+import { initFullscreen } from './fullscreen.js?v=2026-10-06.0545';
+import { paneLayer } from './panes.js?v=2026-10-06.0545';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
-const PALETTE = { auto: '#1b1b1b', blue: '#1f5fd1', red: '#c62828', green: '#2e7d32' };
+const PALETTE = { auto: '#1b1b1b', blue: '#1f5fd1', red: '#c62828', green: '#2e7d32', orange: '#e65100', purple: '#6a1b9a', teal: '#00838f', yellow: '#f9a825' };
 const LS = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } },
@@ -318,9 +318,15 @@ function renderPage(view) {
   }
   for (const st of row.strokes) {
     if (hidden.has(st.id)) continue;
-    g.globalAlpha = dim.has(st.id) ? 0.2 : 1;
-    g.fillStyle = PALETTE[st.color] || st.color || '#1b1b1b';
-    g.fill(strokePath(st));
+    g.globalAlpha = (dim.has(st.id) ? 0.2 : 1) * (st.alpha || 1);
+    const col = PALETTE[st.color] || st.color || '#1b1b1b';
+    if (st.dash && st.pts.length > 1) { // a dashed pen line (same drawing as the board's paintStroke)
+      g.save(); g.strokeStyle = col; g.lineWidth = st.size; g.lineCap = 'round'; g.lineJoin = 'round';
+      g.setLineDash([st.size * 2.2 + 2, st.size * 1.8 + 3]); g.beginPath();
+      const p = st.pts; g.moveTo(p[0][0], p[0][1]);
+      for (let i = 1; i < p.length - 1; i++) g.quadraticCurveTo(p[i][0], p[i][1], (p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2);
+      g.lineTo(p[p.length - 1][0], p[p.length - 1][1]); g.stroke(); g.restore();
+    } else { g.fillStyle = col; g.fill(strokePath(st)); }
   }
   g.globalAlpha = 1;
   // answers to "= □" / "= ?", placed as on the lecturer's board: inside the answer box (scaled to

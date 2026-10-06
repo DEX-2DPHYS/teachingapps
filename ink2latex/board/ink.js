@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-06.0537';
+import { recognize } from './shapes.js?v=2026-10-06.0545';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -54,6 +54,32 @@ export function strokePath(s, last = true) {
   }
   if (last) s._path = p;
   return p;
+}
+
+// Paint one stroke. Pen style beyond colour and width is optional on the stroke: alpha (< 1 =
+// see-through, a highlighter) and dash (a dashed line along the pen's path, at the stroke's width).
+// A dashed stroke is drawn as one path, so its dashes never darken where they meet.
+export function paintStroke(g, s, color, last = true) {
+  const a0 = g.globalAlpha;
+  if (s.alpha) g.globalAlpha = a0 * s.alpha;
+  if (s.dash && s.pts.length > 1) {
+    g.save();
+    g.strokeStyle = color;
+    g.lineWidth = s.size;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.setLineDash([s.size * 2.2 + 2, s.size * 1.8 + 3]);
+    g.beginPath();
+    const p = s.pts;
+    g.moveTo(p[0][0], p[0][1]);
+    for (let i = 1; i < p.length - 1; i++) g.quadraticCurveTo(p[i][0], p[i][1], (p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2);
+    g.lineTo(p[p.length - 1][0], p[p.length - 1][1]);
+    g.stroke();
+    g.restore();
+  } else {
+    g.fillStyle = color;
+    g.fill(strokePath(s, last));
+  }
+  g.globalAlpha = a0;
 }
 
 export function strokeBox(s) {
@@ -186,7 +212,7 @@ export function renderPageImage(strokes, pageW, pageH, palette, scale = 2, trans
   const g = c.getContext('2d');
   if (!transparent) { g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); }
   g.setTransform(scale, 0, 0, scale, 0, 0);
-  for (const s of strokes) { g.fillStyle = palette[s.color] || s.color; g.fill(strokePath(s)); }
+  for (const s of strokes) paintStroke(g, s, palette[s.color] || s.color);
   return c.toDataURL('image/png');
 }
 
@@ -228,6 +254,8 @@ export class Board {
     this.tool = 'pen';
     this.color = 'auto';
     this.size = 4.5;
+    this.alpha = 1;      // pen style: < 1 = see-through (stored on the stroke only when used)
+    this.dash = false;   // pen style: dashed line
     this.snap = true;
     this.palette = { auto: '#1b1b1b' };
     this.bg = '#ffffff';
@@ -408,7 +436,8 @@ export class Board {
       this.canvas.style.cursor = 'none'; // the tinted circle shows where it erases (also Ctrl / eraser end)
       this.eraseAt(p);
     } else {
-      this.active = { id: e.pointerId, t0: performance.now(), stroke: { id: ++this.seq, pts: [p], size: this.size, color: this.color, pen: e.pointerType === 'pen', shape: null } };
+      this.active = { id: e.pointerId, t0: performance.now(), stroke: { id: ++this.seq, pts: [p], size: this.size, color: this.color, pen: e.pointerType === 'pen', shape: null,
+        ...(this.alpha < 1 ? { alpha: this.alpha } : {}), ...(this.dash ? { dash: true } : {}) } };
       if (this.pencilImg) this.canvas.style.cursor = 'none'; // the board draws the pencil while writing
       this.hover = p;
       this.armHold(p);
@@ -716,8 +745,7 @@ export class Board {
     for (const s of this.page.strokes) {
       if (this.hiddenIds.has(s.id)) continue;
       g.globalAlpha = this.dimIds.has(s.id) ? 0.2 : 1;
-      g.fillStyle = this.colorOf(s);
-      g.fill(strokePath(s));
+      paintStroke(g, s, this.colorOf(s));
     }
     g.globalAlpha = 1;
     for (const m of this.errorMarks) {
@@ -811,8 +839,7 @@ export class Board {
     g.setTransform(this.dpr * this.s, 0, 0, this.dpr * this.s, 0, 0);
     const a = this.active;
     if (a && a.stroke) {
-      g.fillStyle = this.colorOf(a.stroke);
-      g.fill(strokePath(a.stroke, false));
+      paintStroke(g, a.stroke, this.colorOf(a.stroke), false);
     }
     if (a && a.lasso && a.lasso.length > 1) {
       g.save();

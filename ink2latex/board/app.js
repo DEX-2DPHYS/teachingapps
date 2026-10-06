@@ -1,16 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath } from './ink.js?v=2026-10-06.0537';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0537';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0537';
-import { initSend } from './send.js?v=2026-10-06.0537';
-import { initStudent } from './student.js?v=2026-10-06.0537';
-import { initAssign } from './assign.js?v=2026-10-06.0537';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0537';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0537';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0537';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0537';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0545';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0545';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0545';
+import { initSend } from './send.js?v=2026-10-06.0545';
+import { initStudent } from './student.js?v=2026-10-06.0545';
+import { initAssign } from './assign.js?v=2026-10-06.0545';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0545';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0545';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0545';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0545';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -27,8 +27,9 @@ const isMistral = k => engineOf(k) === 'mistral';
 const heavyModel = () => ({ mistral: 'mistral-medium', openai: 'gpt-sol', claude: 'opus' })[engineOf(settings.finalModel)];
 const IDLE_MS = 900;           // pause before a region is transcribed
 const THEMES = {
-  white: { bg: '#ffffff', palette: { auto: '#1b1b1b', blue: '#1f5fd1', red: '#c62828', green: '#2e7d32' } },
-  black: { bg: '#1f2b26', palette: { auto: '#f2f1e8', blue: '#7fb2ff', red: '#ff8a80', green: '#9ae6a0' } },
+  // eight pen colours (the four swatches in the tool bar, four more on C): each named, so it follows the board
+  white: { bg: '#ffffff', palette: { auto: '#1b1b1b', blue: '#1f5fd1', red: '#c62828', green: '#2e7d32', orange: '#e65100', purple: '#6a1b9a', teal: '#00838f', yellow: '#f9a825' } },
+  black: { bg: '#1f2b26', palette: { auto: '#f2f1e8', blue: '#7fb2ff', red: '#ff8a80', green: '#9ae6a0', orange: '#ffb74d', purple: '#ce93d8', teal: '#80deea', yellow: '#fff176' } },
 };
 
 // ----------------------------------------------------------------------------------- storage
@@ -346,6 +347,7 @@ function openAboutDialog() {
       <p>Developed by Peter Bøggild (DTU) using Claude (Anthropic), to support teaching, interaction and
         AI-supported coaching and transcription, based on advanced multimodal input with digital pens.</p>
       <p><a href="https://dex-2dphys.github.io/" target="_blank" rel="noopener">DEX: Digital Experiments ↗</a></p>
+      <p class="dim">Press K for the keyboard shortcuts.</p>
       <div class="about-act"><span class="dim">Version ${ver}</span><button data-a="close">Close</button></div>
     </div>`;
   document.body.appendChild(d);
@@ -577,7 +579,7 @@ function thumbOf(p, width, onLoad) {
     g.strokeStyle = '#1f5fd1'; g.lineWidth = 4; g.strokeRect(pn.x, pn.y, pn.w, pn.h);
     g.fillStyle = '#1f5fd1'; g.font = `bold ${Math.max(28, pn.h / 6)}px system-ui, sans-serif`; g.fillText('HTML', pn.x + 16, pn.y + Math.max(40, pn.h / 5));
   }
-  for (const s of p.strokes) { g.fillStyle = th.palette[s.color] || s.color || th.palette.auto; g.fill(strokePath(s)); }
+  for (const s of p.strokes) paintStroke(g, s, th.palette[s.color] || s.color || th.palette.auto);
   return c;
 }
 
@@ -1047,7 +1049,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0537');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0545');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2219,7 +2221,11 @@ function renderAll() {
     if (el.parentNode !== cards || cards.children[i] !== el) cards.insertBefore(el, cards.children[i] || null);
     keep.add(b.id);
   });
-  for (const [id, el] of cardEls) if (!keep.has(id)) { el.remove(); cardEls.delete(id); }
+  for (const [id, el] of cardEls) if (!keep.has(id)) {
+    // a card removed under the mouse never gets its mouseleave: drop the region highlight it set
+    if (el.matches(':hover')) { board.highlight = null; board.request(); }
+    el.remove(); cardEls.delete(id);
+  }
   if (!list.length) cards.innerHTML = '<p class="dim">Nothing written on this page yet.</p>';
   else cards.querySelector('p.dim')?.remove();
   applyCardFilter(list);
@@ -2539,7 +2545,7 @@ function serialize(withPhotos) {
     app: 'ink2latex', version: 2, coords: 'page', orientation: settings.orientation, saved: new Date().toISOString(),
     pages: state.pages.map(p => ({
       uid: p.uid,
-      strokes: p.strokes.map(s => ({ id: s.id, size: s.size, color: s.color, pen: s.pen, shape: s.shape, pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
+      strokes: p.strokes.map(s => ({ id: s.id, size: s.size, color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}), pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
       blocks: p.blocks.map(b => ({ id: b.id, strokeIds: b.strokeIds, sig: b.sig, status: b.status === 'busy' ? 'stale' : b.status, model: b.model, result: b.result, edit: b.edit, confirmed: b.confirmed, figure: b.figure, ms: b.ms, comment: b.comment, suggest: b.suggest, orig: b.orig || null, agreement: b.agreement || null, pageAgree: b.pageAgree ?? null, pieces: isGroup(b) ? piecesOf(b) : null, answer: b.answer && b.answer.status !== 'busy' ? b.answer : null })),
       interp: p.interp && !p.interp.error ? p.interp : null,
       texts: p.texts || [],
@@ -2648,7 +2654,7 @@ async function flattenPage(p, { online = false, theme = settings.board, orientat
     const g = c.getContext('2d');
     g.setTransform(k, 0, 0, k, 0, 0);
     const pal = (THEMES[theme] || THEMES.white).palette;
-    for (const s of p.strokes) { g.fillStyle = pal[s.color] || s.color || pal.auto; g.fill(strokePath({ ...s, _path: null })); }
+    for (const s of p.strokes) paintStroke(g, { ...s, _path: null }, pal[s.color] || s.color || pal.auto);
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
     const src = (online && await upload(blob)) || await blobToDataUrl(blob);
     q.images.push({ id: newImageId(), src, x: 0, y: 0, w: W, h: H, lock: true });
@@ -2685,7 +2691,7 @@ if (settings.boardLecture === undefined) { settings.boardLecture = settings.send
 function pagePayload(p) {
   const r1 = v => Math.round(v * 10) / 10;
   return {
-    strokes: p.strokes.map(s => ({ id: s.id, size: r1(s.size), color: s.color, pen: s.pen, shape: s.shape,
+    strokes: p.strokes.map(s => ({ id: s.id, size: r1(s.size), color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}),
       pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
     blocks: p.blocks.map(b => {
       const v = answerValue(b);
@@ -2779,6 +2785,147 @@ const applySize = () => {
 };
 sizeEl.addEventListener('input', applySize);
 applySize();
+
+// ----------------------------------------------------------------------------------- pen styles
+// Hold C: the pen palette (8 colours, see-through, dashed, three widths) under the pen; change the
+// style, let go of C, write on. Hold S: store the current pen in one of five slots (a short tap of
+// S is still the Select tool). Hold R: recall one of the five. A quick tap of C or R leaves the
+// palette open until a choice, Esc or a click elsewhere. While a slot palette is open, 1-5 pick.
+const PEN_COLORS = ['auto', 'blue', 'red', 'green', 'orange', 'purple', 'teal', 'yellow'];
+const PEN_COLOR_NAMES = { auto: 'Ink', blue: 'Blue', red: 'Red', green: 'Green', orange: 'Orange', purple: 'Purple', teal: 'Teal', yellow: 'Yellow' };
+const PEN_WIDTHS = [['Fine', 2], ['Medium', 4.5], ['Bold', 9]];
+const SEE_THROUGH = 0.4;
+const penStyle = () => ({ color: board.color, size: board.size, alpha: board.alpha, dash: board.dash });
+function applyPenStyle(st) {
+  board.color = st.color;
+  board.alpha = st.alpha && st.alpha < 1 ? st.alpha : 1;
+  board.dash = !!st.dash;
+  sizeEl.value = st.size; applySize();
+  document.querySelectorAll('.swatch').forEach(x => x.classList.toggle('active', x.dataset.color === st.color));
+  if (board.tool !== 'pen') setTool('pen'); else applyCursor();
+}
+// a short curve drawn in a pen style, on the board's own colour so the ink looks as it will
+function penSample(st, w = 132, h = 26) {
+  const pal = THEMES[settings.board].palette;
+  const col = pal[st.color] || st.color || pal.auto;
+  const sw = Math.max(1, Math.min(st.size * 1.1, 13));
+  const dash = st.dash ? ` stroke-dasharray="${(sw * 2.2 + 2).toFixed(1)} ${(sw * 1.8 + 3).toFixed(1)}"` : '';
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="M9 ${h / 2 + 4} C ${w * 0.32} ${h / 2 - 9}, ${w * 0.58} ${h / 2 + 11}, ${w - 9} ${h / 2 - 4}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"${dash} opacity="${st.alpha || 1}"/></svg>`;
+}
+const slots = () => (settings.penSlots ||= [null, null, null, null, null]);
+let penPop = null;         // the open palette element
+let penKey = null;         // {key, mode, t, opened, used, timer} while C / S / R is held
+let lastPointer = null;    // last pointer position on screen, to open the palette where the pen is
+document.addEventListener('pointermove', e => { lastPointer = [e.clientX, e.clientY]; }, true);
+
+function penPopHtml(mode) {
+  const bg = THEMES[settings.board].bg;
+  const cur = penStyle();
+  if (mode === 'style') {
+    return `<div class="pp-title">Pen <span class="dim">· let go of C to write</span></div>
+      <div class="pp-sample" style="background:${bg}">${penSample(cur, 220, 30)}</div>
+      <div class="pp-colors">${PEN_COLORS.map(c => `<button data-pc="${c}" class="pp-col${c === cur.color ? ' on' : ''}" title="${PEN_COLOR_NAMES[c]}" style="--c:${THEMES[settings.board].palette[c]}"></button>`).join('')}</div>
+      <div class="pp-row"><button data-pt="alpha" class="${cur.alpha < 1 ? 'on' : ''}" title="See-through ink, like a highlighter">See-through</button>
+        <button data-pt="dash" class="${cur.dash ? 'on' : ''}" title="Dashed line">Dashed</button></div>
+      <div class="pp-row">${PEN_WIDTHS.map(([n, w]) => `<button data-pw="${w}" class="pp-w${Math.abs(cur.size - w) < 0.01 ? ' on' : ''}" title="${n}" style="background:${bg}">${penSample({ ...cur, size: w }, 64, 22)}</button>`).join('')}</div>`;
+  }
+  const store = mode === 'store';
+  return `<div class="pp-title">${store ? 'Store the current pen' : 'Recall a pen'} <span class="dim">· 1-5 or click</span></div>
+    ${store ? `<div class="pp-sample" style="background:${bg}">${penSample(cur, 220, 30)}</div>` : ''}
+    <div class="pp-slots">${slots().map((st, i) => `<button data-slot="${i}" class="pp-slot${st ? '' : ' empty'}" title="${store ? (st ? 'Overwrite slot ' : 'Store in slot ') + (i + 1) : st ? 'Use slot ' + (i + 1) : 'Slot ' + (i + 1) + ' is empty'}" style="background:${bg}">
+      <span class="pp-n">${i + 1}</span>${st ? penSample(st, 150, 24) : '<span class="pp-empty">empty</span>'}</button>`).join('')}</div>`;
+}
+function openPenPop(mode) {
+  closePenPop();
+  penPop = document.createElement('div');
+  penPop.id = 'penPop';
+  penPop.dataset.mode = mode;
+  penPop.innerHTML = penPopHtml(mode);
+  document.body.appendChild(penPop);
+  // under the pen if it is over the page, else in the middle of the board, and always on screen
+  const r = penPop.getBoundingClientRect();
+  const wr = $('#boardWrap').getBoundingClientRect();
+  const [px, py] = lastPointer || [wr.left + wr.width / 2, wr.top + wr.height / 2];
+  penPop.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, px - r.width / 2)) + 'px';
+  penPop.style.top = Math.max(8, Math.min(innerHeight - r.height - 8, py - r.height - 24)) + 'px';
+  // pointerdown, not click: a pen tap acts at once, and the page underneath never sees it
+  penPop.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); penPopPick(e.target.closest('button')); });
+}
+function closePenPop() { penPop?.remove(); penPop = null; }
+function refreshPenPop() { if (penPop) penPop.innerHTML = penPopHtml(penPop.dataset.mode); }
+function penPopPick(btn) {
+  if (!btn || !penPop) return;
+  const mode = penPop.dataset.mode;
+  if (penKey) penKey.used = true;
+  const d = btn.dataset;
+  if (mode === 'style') {
+    const st = penStyle();
+    if (d.pc) st.color = d.pc;
+    if (d.pt === 'alpha') st.alpha = st.alpha < 1 ? 1 : SEE_THROUGH;
+    if (d.pt === 'dash') st.dash = !st.dash;
+    if (d.pw) st.size = Number(d.pw);
+    applyPenStyle(st);
+    refreshPenPop();
+    return;
+  }
+  if (d.slot != null) chooseSlot(Number(d.slot));
+}
+function chooseSlot(i) {
+  if (!penPop) return;
+  if (penKey) penKey.used = true;
+  if (penPop.dataset.mode === 'store') {
+    slots()[i] = penStyle(); saveSettings();
+    toast(`Pen stored in slot ${i + 1}`);
+  } else {
+    const st = slots()[i];
+    if (!st) { toast(`Slot ${i + 1} is empty: hold S to store a pen there`); return; }
+    applyPenStyle(st);
+  }
+  closePenPop();
+}
+// key down: open now (C, R) or after a moment (S, whose tap is still the Select tool)
+function penKeyDown(key, mode, delay = 0) {
+  if (penKey?.key === key) return; // key repeat
+  clearTimeout(penKey?.timer);
+  penKey = { key, mode, t: performance.now(), opened: false, used: false, timer: 0 };
+  const open = () => { if (penKey?.key === key) { penKey.opened = true; openPenPop(mode); } };
+  if (delay) penKey.timer = setTimeout(open, delay); else open();
+}
+function penKeyUp(key) {
+  if (penKey?.key !== key) return false;
+  const h = penKey; penKey = null;
+  clearTimeout(h.timer);
+  if (!h.opened) { if (h.mode === 'store') setTool('lasso'); return true; } // a tap of S: Select, as before
+  const tap = performance.now() - h.t < 250 && !h.used;
+  if (tap && h.mode !== 'store') return true; // a quick tap leaves the palette open
+  closePenPop();
+  return true;
+}
+document.addEventListener('keyup', e => { if (penKeyUp(e.key.toLowerCase())) e.preventDefault(); });
+window.addEventListener('blur', () => { if (penKey) { clearTimeout(penKey.timer); penKey = null; closePenPop(); } });
+// an open palette (left open by a tap) closes on a press anywhere else
+document.addEventListener('pointerdown', e => { if (penPop && !penPop.contains(e.target)) closePenPop(); }, true);
+
+// K: every keyboard shortcut, as a splash; K again, Esc or a click closes it
+const SHORTCUTS = [
+  ['Writing', [['P', 'Pen / laser pointer (or Shift pressed alone)'], ['E', 'Eraser on / off'], ['T', 'Text box'], ['S or G', 'Select (lasso)'],
+    ['C (hold)', 'Pen palette: 8 colours, see-through, dashed, 3 widths. Let go to write on'],
+    ['S (hold)', 'Store the current pen in one of 5 slots'], ['R (hold)', 'Recall one of the 5 stored pens'], ['1-5', 'Pick a slot while its palette is open']]],
+  ['Page', [['Space (hold)', 'Preview: the transcriptions in place of the ink'], ['B', 'Region boxes: all / current / off'],
+    ['I', 'Use the HTML on this page / write on it'], ['← → / PgUp PgDn', 'Previous / next page'], ['Enter', 'Answer the question under the pen']]],
+  ['Editing', [['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+G', 'Group the selection'], ['Ctrl+Shift+G', 'Ungroup'], ['Delete', 'Delete the selection'], ['Esc', 'Deselect, close a popup']]],
+  ['Other', [['K', 'This list'], ['Ctrl+P', 'Print'], ['Ctrl+Shift+D', 'Diagnostics']]],
+];
+function toggleKeys() {
+  if ($('#keysDlg')) { $('#keysDlg').remove(); return; }
+  const d = document.createElement('div');
+  d.id = 'keysDlg';
+  d.innerHTML = `<div class="keys-box" role="dialog" aria-label="Keyboard shortcuts"><strong>Keyboard shortcuts</strong>
+    <div class="keys-cols">${SHORTCUTS.map(([h, rows]) => `<div><h4>${h}</h4>${rows.map(([k, t]) => `<div class="keys-row"><kbd>${esc(k)}</kbd><span>${esc(t)}</span></div>`).join('')}</div>`).join('')}</div>
+    <div class="dim small">K, Esc or a click closes this</div></div>`;
+  document.body.appendChild(d);
+  d.addEventListener('pointerdown', () => d.remove());
+}
 
 $('#undo').addEventListener('click', () => board.undo());
 $('#redo').addEventListener('click', () => board.redo());
@@ -3092,6 +3239,15 @@ document.addEventListener('keydown', e => {
   if (e.target.isContentEditable || (e.target.closest && e.target.closest('textarea, input, select'))) return;
   if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setPreview(true); return; } // hold Space = preview
   const k = e.key.toLowerCase();
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    // pen palettes (held keys) and the shortcut list
+    if (k === 'c') { e.preventDefault(); penKeyDown('c', 'style'); return; }
+    if (k === 'r') { e.preventDefault(); penKeyDown('r', 'recall'); return; }
+    if (k === 's') { e.preventDefault(); penKeyDown('s', 'store', 250); return; }
+    if (k === 'k') { e.preventDefault(); if (!e.repeat) toggleKeys(); return; }
+    if (penPop && penPop.dataset.mode !== 'style' && /^[1-5]$/.test(k)) { e.preventDefault(); chooseSlot(Number(k) - 1); return; }
+    if (k === 'escape' && (penPop || $('#keysDlg'))) { closePenPop(); $('#keysDlg')?.remove(); return; }
+  }
   if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); board.undo(); }
   else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); board.redo(); }
   else if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); printNow(); }
