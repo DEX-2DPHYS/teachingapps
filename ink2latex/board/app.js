@@ -1,16 +1,16 @@
 // ink2latex app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.0649';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.0649';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.0649';
-import { initSend } from './send.js?v=2026-10-06.0649';
-import { initStudent } from './student.js?v=2026-10-06.0649';
-import { initAssign } from './assign.js?v=2026-10-06.0649';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.0649';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.0649';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.0649';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.0649';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.1221';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.1221';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.1221';
+import { initSend } from './send.js?v=2026-10-06.1221';
+import { initStudent } from './student.js?v=2026-10-06.1221';
+import { initAssign } from './assign.js?v=2026-10-06.1221';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-06.1221';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.1221';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.1221';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.1221';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1070,7 +1070,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.0649');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.1221');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1267,6 +1267,8 @@ function questionOf(b) {
     // multi-line layouts: "\begin{aligned} N &= … \\ &= ? \end{aligned}" asks the same as "N = … = ?"
     .replace(/\\(begin|end)\{(aligned|align\*?|gathered|split|array)\}(\{[^{}]*\})?|\\\\|&/g, ' ')
     .replace(/\\[,;:! ]|\\(right|left)[.)]?/g, ' ')
+    // the marker in braces: "= {?}", "= {□}" (some transcriptions group it)
+    .replace(/\{\s*(\?+|□)\s*\}/g, '$1')
     .replace(/\s+/g, '')
     .replace(/[.,;]+$/, '');
   if (!src.includes('=')) return null;
@@ -1935,6 +1937,7 @@ function regionState(b) {
   if (b.status === 'error') return 'bad';
   const r = b.result;
   if (!r || r.kind === 'empty') return '';
+  if (answerValue(b)?.cls === 'err') return 'warn'; // a "= ?" that could not be answered: the card says why
   if (b.confirmed) return 'good';
   if (b.agreement === 'split') return 'bad';
   if (b.suggest || r.uncertain?.length || b.agreement === 'majority' || b.pageAgree === false) return 'warn';
@@ -3528,7 +3531,7 @@ async function loadStudentSettings() {
   if (!lec || cs === null) { form.hidden = true; $('#stuCourse').textContent = lec ? 'Sign in under 📡 Send to set the rules for students.' : 'Choose a lecture under 📡 Send first: these rules are per course.'; return; }
   const r = { features: { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false }, daily_limit: 0.2, pay: 'course', coaching: '', ...(cs || {}) };
   r.features = { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false, ...(cs?.features || {}) };
-  r.models = { live: 'mistral-small', final: 'mistral-medium', ...(cs?.models || {}) };
+  r.models = { live: 'mistral-small', final: 'mistral-large', ...(cs?.models || {}) };
   // the same model list as the board's own Live / Final menus
   for (const [id, v] of [['#stuLive', r.models.live], ['#stuFinal', r.models.final]]) {
     $(id).innerHTML = $('#liveModel').innerHTML;

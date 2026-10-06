@@ -12,7 +12,9 @@ export function norm(s) {
     .replace(/\\varepsilon/g, '\\epsilon').replace(/\\varphi/g, '\\phi')
     .replace(/\\to\b/g, '\\rightarrow').replace(/\\leq\b/g, '\\le').replace(/\\geq\b/g, '\\ge')
     .replace(/\\begin\{aligned\}|\\end\{aligned\}|&/g, '')
-    .replace(/\s+/g, '');
+    .replace(/\s+/g, '')
+    .replace(/\{(\?+)\}/g, '$1')       // "= {?}" is "= ?"
+    .replace(/(\\?[.,;:])+$/, '');     // a full stop or comma at the very end is not part of the maths
   // {x} -> x for single tokens, repeated until stable
   for (let i = 0; i < 5; i++) {
     const u = t.replace(/\{(\\?[A-Za-z]|\d|\\[A-Za-z]+)\}/g, '$1');
