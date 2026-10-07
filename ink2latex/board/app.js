@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-07.1929';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-07.1929';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-07.1929';
-import { initSend } from './send.js?v=2026-10-07.1929';
-import { initStudent } from './student.js?v=2026-10-07.1929';
-import { initAssign } from './assign.js?v=2026-10-07.1929';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-07.1929';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-07.1929';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-07.1929';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-07.1929';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-07.1955';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-07.1955';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-07.1955';
+import { initSend } from './send.js?v=2026-10-07.1955';
+import { initStudent } from './student.js?v=2026-10-07.1955';
+import { initAssign } from './assign.js?v=2026-10-07.1955';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-07.1955';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-07.1955';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-07.1955';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-07.1955';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -723,13 +723,15 @@ const fullscreen = initFullscreen({
   hide: [$('#panel'), $('#panelResizer')],
   menuOpen: () => ['settingsMenu', 'sendMenu', 'viewMenu', 'figMenu', 'pagesMenu', 'aiMenu'].some(id => !$('#' + id).hidden),
   persistent: settings.tools !== false,
-  onClose: () => { settings.tools = false; saveSettings(); applyTools(); toast('Tool bar hidden: View → Tool bar brings it back (the keys still work)'); },
+  onClose: () => { settings.tools = false; saveSettings(); applyTools();
+applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the keys still work)'); },
   tools: [
     { icon: '✎', tip: 'Pen (P)', run: () => setTool('pen'), on: () => board.tool === 'pen' },
     { icon: '🔴', tip: 'Laser pointer (P or Shift)', run: () => setTool('laser'), on: () => board.tool === 'laser' },
     { icon: '⌫', tip: 'Eraser: E erases whole strokes, X only what it touches; press again to switch', run: () => (board.tool === 'eraser' ? setEraser(!board.partialErase) : setTool('eraser')), on: () => board.tool === 'eraser' },
     { icon: '◌', tip: 'Select (S)', run: () => setTool('lasso'), on: () => board.tool === 'lasso' },
     { icon: 'T', tip: 'Text (T)', run: () => setTool('text'), on: () => board.tool === 'text' },
+    { icon: '🪣', tip: 'Paint bucket (F): tap inside a closed shape to fill it with the pen colour', run: () => setTool('fill'), on: () => board.tool === 'fill' },
     { icon: '🎨', tip: 'Pen colour, see-through, dashed, width (or hold C)', run: () => openPenPop('style') },
     null,
     { icon: '↶', tip: 'Undo (Ctrl+Z)', run: () => board.undo() },
@@ -742,8 +744,124 @@ const fullscreen = initFullscreen({
     { icon: '◀', tip: 'Previous page (←)', run: () => state.cur > 0 && gotoPage(state.cur - 1) },
     { label: () => `${state.cur + 1}/${state.pages.length}`, tip: 'Page (▦ Pages → Overview)' },
     { icon: '▶', tip: 'Next page (→)', run: () => state.cur < state.pages.length - 1 && gotoPage(state.cur + 1) },
+    null,
+    { icon: '▤', tip: 'Transcription panel (in full screen: a floating box; 📌 docks it at the right)', run: () => togglePanelAnywhere(), on: () => (document.body.classList.contains('fs') ? (settings.fsPanel || 'off') !== 'off' : !!settings.panel) },
   ],
+  onChange: () => applyFsPanel(),
 });
+// ---- the panel in full screen: off, a floating box you can drag by its head, or docked at the right
+function togglePanelAnywhere() {
+  if (fullscreen.active()) settings.fsPanel = (settings.fsPanel || 'off') === 'off' ? 'float' : 'off';
+  else { settings.panel = !settings.panel; applyPanel(); }
+  saveSettings(); applyFsPanel();
+}
+function applyFsPanel() {
+  const m = settings.fsPanel || 'off', p = $('#panel');
+  document.body.classList.toggle('fs-panel-float', m === 'float');
+  document.body.classList.toggle('fs-panel-dock', m === 'dock');
+  const pos = settings.fsPanelPos;
+  if (m === 'float' && pos) Object.assign(p.style, { left: Math.min(pos[0], innerWidth - 120) + 'px', top: Math.min(pos[1], innerHeight - 60) + 'px', right: 'auto' });
+  else Object.assign(p.style, { left: '', top: '', right: '' });
+  $('#panelPin').textContent = m === 'dock' ? '📌 Float' : '📌 Dock';
+  $('#panelPin').title = m === 'dock' ? 'Let the panel float over the page again' : 'Dock the panel at the right: the page makes room for it';
+  try { fullscreen.sync(); } catch { /* not set up yet */ }
+  window.dispatchEvent(new Event('resize'));
+}
+$('#panelPin').addEventListener('click', () => { settings.fsPanel = settings.fsPanel === 'dock' ? 'float' : 'dock'; saveSettings(); applyFsPanel(); });
+$('#panelFsClose').addEventListener('click', () => { settings.fsPanel = 'off'; saveSettings(); applyFsPanel(); });
+// drag the floating panel by its head
+$('#panelHead').addEventListener('pointerdown', e => {
+  if (!document.body.classList.contains('fs-panel-float') || !document.body.classList.contains('fs') || e.target.closest('button, input, select')) return;
+  const head = $('#panelHead'), p = $('#panel'), r = p.getBoundingClientRect(), ox = e.clientX - r.left, oy = e.clientY - r.top;
+  e.preventDefault();
+  head.setPointerCapture?.(e.pointerId);
+  const move = ev => {
+    const x = Math.max(0, Math.min(innerWidth - 120, ev.clientX - ox)), y = Math.max(0, Math.min(innerHeight - 60, ev.clientY - oy));
+    Object.assign(p.style, { left: x + 'px', top: y + 'px', right: 'auto' });
+    settings.fsPanelPos = [Math.round(x), Math.round(y)];
+  };
+  const up = () => { head.removeEventListener('pointermove', move); saveSettings(); };
+  head.addEventListener('pointermove', move);
+  head.addEventListener('pointerup', up, { once: true });
+  head.addEventListener('pointercancel', up, { once: true });
+});
+
+// ---- the paint bucket: tap inside a closed outline and it is filled with the pen colour (see-through,
+// so writing inside stays readable). The page's ink is drawn into a small black-and-white image, its
+// lines a little thicker so small gaps in a hand-drawn outline still close; the area around the tap
+// is flooded, and its edge becomes the fill (a closed outline, stored, sent and undone like a stroke).
+function bucketFill(px, py) {
+  const page = curPage(), W = board.pageW, H = board.pageH;
+  const k = Math.min(1, 1100 / Math.max(W, H));       // image pixels per page unit
+  const cw = Math.ceil(W * k), ch = Math.ceil(H * k);
+  const c = document.createElement('canvas');
+  c.width = cw; c.height = ch;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.setTransform(k, 0, 0, k, 0, 0);
+  g.fillStyle = '#000'; g.strokeStyle = '#000'; g.lineJoin = 'round'; g.lineCap = 'round';
+  const GAP = 10; // page units: gaps up to about this size in an outline still close it
+  for (const s of page.strokes) { if (s.fill) continue; const pth = strokePath(s); g.fill(pth); g.lineWidth = GAP; g.stroke(pth); }
+  const px4 = g.getImageData(0, 0, cw, ch).data;
+  const N = cw * ch, wall = new Uint8Array(N);
+  for (let i = 0; i < N; i++) wall[i] = px4[i * 4 + 3] > 90 ? 1 : 0;
+  const sx = Math.floor(px * k), sy = Math.floor(py * k);
+  if (sx < 1 || sy < 1 || sx >= cw - 1 || sy >= ch - 1) return;
+  if (wall[sy * cw + sx]) { toast('Tap inside a closed shape, not on its line'); return; }
+  // flood the area around the tap; reaching the edge of the page means the outline is open
+  const inside = new Uint8Array(N), stack = [sy * cw + sx];
+  inside[sy * cw + sx] = 1;
+  let n = 0;
+  while (stack.length) {
+    const i = stack.pop(), x = i % cw;
+    n++;
+    if (x === 0 || x === cw - 1 || i < cw || i >= N - cw || n > 0.6 * N) { toast('This area is not closed: draw its outline all the way round (small gaps are fine), then tap inside'); return; }
+    for (const j of [i - 1, i + 1, i - cw, i + cw]) if (!wall[j] && !inside[j]) { inside[j] = 1; stack.push(j); }
+  }
+  // grow it under the outline (the outline was drawn thicker), so the fill meets the line
+  let m = inside;
+  for (let r = Math.max(1, Math.round((GAP / 2 + 1.5) * k)); r > 0; r--) {
+    const m2 = m.slice();
+    for (let i = cw; i < N - cw; i++) if (!m[i] && (m[i - 1] || m[i + 1] || m[i - cw] || m[i + cw])) m2[i] = 1;
+    m = m2;
+  }
+  // its outer edge (Moore neighbour tracing), then fewer points (Ramer-Douglas-Peucker)
+  let s0 = -1;
+  for (let i = 0; i < N; i++) if (m[i]) { s0 = i; break; }
+  const at = (x, y) => x >= 0 && y >= 0 && x < cw && y < ch && m[y * cw + x] === 1;
+  const D = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  let cx = s0 % cw, cy = (s0 - cx) / cw, d = 0;
+  const x0 = cx, y0 = cy, edge = [[cx, cy]];
+  for (let steps = 0; steps < 4 * N; steps++) {
+    let found = false;
+    for (let t = 0; t < 8; t++) { const nd = (d + 6 + t) % 8, nx = cx + D[nd][0], ny = cy + D[nd][1]; if (at(nx, ny)) { cx = nx; cy = ny; d = nd; found = true; break; } }
+    if (!found || (cx === x0 && cy === y0)) break;
+    edge.push([cx, cy]);
+  }
+  const simplify = (pts, eps) => {
+    if (pts.length < 3) return pts;
+    const [a, b] = [pts[0], pts[pts.length - 1]];
+    let far = 0, at2 = 0;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const [x, y] = pts[i], len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const dist = Math.abs((b[0] - a[0]) * (a[1] - y) - (a[0] - x) * (b[1] - a[1])) / len;
+      if (dist > far) { far = dist; at2 = i; }
+    }
+    return far > eps ? [...simplify(pts.slice(0, at2 + 1), eps).slice(0, -1), ...simplify(pts.slice(at2), eps)] : [a, b];
+  };
+  const half = Math.floor(edge.length / 2); // a closed line: simplify its two halves
+  const poly = edge.length > 6 ? [...simplify(edge.slice(0, half + 1), 0.8).slice(0, -1), ...simplify(edge.slice(half), 0.8)] : edge;
+  if (poly.length < 3) { toast('That area is too small to fill'); return; }
+  const r1 = v => Math.round(v * 10) / 10;
+  board.addStroke({ size: 1, color: board.color, pen: false, fill: true, alpha: 0.35, pts: poly.map(([x, y]) => [r1((x + 0.5) / k), r1((y + 0.5) / k), 0.5]) });
+}
+// with the bucket on, a tap on the page fills instead of writing
+$('#boardWrap').addEventListener('pointerdown', e => {
+  if (board.tool !== 'fill' || e.button > 0 || !e.target.closest('#sheet') || e.target.closest('button, .tx-box, .pane-bar, #selBar, .fig-box, .s-dot, iframe')) return;
+  e.preventDefault(); e.stopPropagation();
+  const r = board.canvas.getBoundingClientRect();
+  bucketFill((e.clientX - r.left) / board.s, (e.clientY - r.top) / board.s);
+}, true);
+
 function applyTools() {
   fullscreen.setPersistent(settings.tools !== false);
   $('#showTools').checked = settings.tools !== false;
@@ -803,8 +921,15 @@ function joinable(a, b, mx, my, h) {
   return !!settings.lineGroup && sameLine(a, b) && near(a, b, Math.max(mx, lineReach(h)), 0);
 }
 
+// the letter height, measured as if written with a 4.5 pen (what the grouping distances were tuned with),
+// so grouping does not change with the pen's width; fills are not letters
+// a stroke's box for grouping: as if written with a 4.5 pen, so thinner pens group the same
+function groupBox(s) {
+  const b = strokeBox(s), d = (4.5 - s.size) / 2;
+  return d > 0 ? { x0: b.x0 - d, y0: b.y0 - d, x1: b.x1 + d, y1: b.y1 + d } : b;
+}
 function typicalHeight(strokes) {
-  const h = strokes.filter(s => !s.shape).map(s => { const b = strokeBox(s); return b.y1 - b.y0; }).sort((a, b) => a - b);
+  const h = strokes.filter(s => !s.shape && !s.fill).map(s => { const b = strokeBox(s); return b.y1 - b.y0 - s.size + 4.5; }).sort((a, b) => a - b);
   return h.length ? h[Math.floor(h.length / 2)] : 30;
 }
 
@@ -831,7 +956,7 @@ function regroup() {
   page.blocks = page.blocks.filter(b => b.strokeIds.length);
 
   const assigned = new Set(page.blocks.flatMap(b => b.strokeIds));
-  const fresh = page.strokes.filter(s => !assigned.has(s.id));
+  const fresh = page.strokes.filter(s => !assigned.has(s.id) && !s.fill); // fills are not writing
   if (fresh.length) {
     const h = typicalHeight(page.strokes);
     const mx = clamp(1.4 * h, 30, 90), my = clamp(0.65 * h, 12, 38);
@@ -839,7 +964,7 @@ function regroup() {
     // of a spread-out equation does not join it unless it is near one of the parts
     const nodes = [
       ...page.blocks.flatMap(b => partsOf(b, page).map(pt => ({ block: b, box: pt.box }))),
-      ...fresh.map(s => ({ stroke: s, box: strokeBox(s) })),
+      ...fresh.map(s => ({ stroke: s, box: groupBox(s) })),
     ];
     const parent = nodes.map((_, i) => i);
     const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
@@ -1028,14 +1153,14 @@ function partsOf(b, page = curPage()) {
   if (isGroup(b)) {
     const byId = new Map(page.strokes.map(s => [s.id, s]));
     return piecesOf(b).map(p => p.map(id => byId.get(id)).filter(Boolean)).filter(p => p.length)
-      .map(p => ({ strokes: p, box: unionBox(p.map(strokeBox)) }))
+      .map(p => ({ strokes: p, box: unionBox(p.map(groupBox)) }))
       .sort((p, q) => readingOrder(p.box, q.box));
   }
   const st = strokesOf(b, page);
-  if (st.length <= 1) return st.map(s => ({ strokes: [s], box: strokeBox(s) }));
+  if (st.length <= 1) return st.map(s => ({ strokes: [s], box: groupBox(s) }));
   const h = typicalHeight(page.strokes);
   const mx = clamp(1.4 * h, 30, 90), my = clamp(0.65 * h, 12, 38) * 1.35;
-  const nodes = st.map(s => ({ stroke: s, box: strokeBox(s) }));
+  const nodes = st.map(s => ({ stroke: s, box: groupBox(s) }));
   const parent = nodes.map((_, i) => i);
   const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   for (let i = 0; i < nodes.length; i++) {
@@ -1046,7 +1171,7 @@ function partsOf(b, page = curPage()) {
   }
   const groups = new Map();
   nodes.forEach((n, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(n.stroke); });
-  const parts = [...groups.values()].map(g => ({ strokes: g, box: unionBox(g.map(strokeBox)) }));
+  const parts = [...groups.values()].map(g => ({ strokes: g, box: unionBox(g.map(groupBox)) }));
   return parts.sort((p, q) => readingOrder(p.box, q.box));
 }
 
@@ -1104,7 +1229,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-07.1929');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-07.1955');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1173,8 +1298,9 @@ function regionImages(b, page) {
   if (!settings.readContext || !coreFeatures.context) return { primary: renderCrop(strokes), alt: renderCrop(strokes) };
   const opts = { lineH: typicalHeight(page.strokes), pageW: board.pageW, pageH: board.pageH };
   const withCtx = !spreadOut(b, page);
-  const primary = renderRegion(page.strokes, strokes, { ...opts, context: withCtx });
-  const alt = withCtx && primary.neighbours ? renderRegion(page.strokes, strokes, { ...opts, context: false }) : renderCrop(strokes);
+  const ink = page.strokes.filter(s => !s.fill); // fills are not shown to the AI as writing
+  const primary = renderRegion(ink, strokes, { ...opts, context: withCtx });
+  const alt = withCtx && primary.neighbours ? renderRegion(ink, strokes, { ...opts, context: false }) : renderCrop(strokes);
   return { primary, alt };
 }
 
@@ -1386,6 +1512,7 @@ function answerHtml(b, detailed) {
 // Answer boxes ("= □"): closed, roughly rectangular strokes (snapped or freehand) with nothing
 // written inside them. A rectangle with writing in it (a diagram) is not an answer box.
 function shapeKind(s) {
+  if (s.fill) return null;
   if (['rectangle', 'quadrilateral'].includes(s.shape)) return s.shape;
   if (s._kindOf !== s.pts) { s._kindOf = s.pts; s._kind = s.pts.length > 4 ? recognize(s.raw || s.pts)?.type || null : null; }
   return s._kind;
@@ -1556,7 +1683,7 @@ async function interpretPage() {
   // every part of a spread-out region carries the region's number
   const labels = list.flatMap(({ b }, i) => partsOf(b, page).map(pt => ({ box: pt.box, n: i + 1 })));
   const area = { x0: 0, y0: 0, x1: board.pageW, y1: Math.min(board.pageH, Math.max(...list.map(o => o.box.y1)) + 40) };
-  const { image, mediaType, width, height } = renderCrop(page.strokes, 1600, labels, area);
+  const { image, mediaType, width, height } = renderCrop(page.strokes.filter(s => !s.fill), 1600, labels, area);
   const context = list.map(({ b }, i) => {
     const r = b.result;
     const reading = r ? `[${r.kind}] ${oneLine(sourceOf(b), 300)}` : '[not transcribed]';
@@ -2680,7 +2807,7 @@ function serialize(withPhotos) {
     app: 'ink2latex', version: 2, coords: 'page', orientation: settings.orientation, saved: new Date().toISOString(),
     pages: state.pages.map(p => ({
       uid: p.uid,
-      strokes: p.strokes.map(s => ({ id: s.id, size: s.size, color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}), pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
+      strokes: p.strokes.map(s => ({ id: s.id, size: s.size, color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}), ...(s.fill ? { fill: true } : {}), pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
       blocks: p.blocks.map(b => ({ id: b.id, strokeIds: b.strokeIds, sig: b.sig, status: b.status === 'busy' ? 'stale' : b.status, model: b.model, result: b.result, edit: b.edit, confirmed: b.confirmed, figure: b.figure, ms: b.ms, comment: b.comment, suggest: b.suggest, orig: b.orig || null, agreement: b.agreement || null, pageAgree: b.pageAgree ?? null, pieces: isGroup(b) ? piecesOf(b) : null, answer: b.answer && b.answer.status !== 'busy' ? b.answer : null })),
       interp: p.interp && !p.interp.error ? p.interp : null,
       texts: p.texts || [],
@@ -2826,7 +2953,7 @@ if (settings.boardLecture === undefined) { settings.boardLecture = settings.send
 function pagePayload(p) {
   const r1 = v => Math.round(v * 10) / 10;
   return {
-    strokes: p.strokes.map(s => ({ id: s.id, size: r1(s.size), color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}),
+    strokes: p.strokes.map(s => ({ id: s.id, size: r1(s.size), color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}), ...(s.fill ? { fill: true } : {}),
       pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
     blocks: p.blocks.map(b => {
       const v = answerValue(b);
@@ -2887,7 +3014,7 @@ function pencilCursor(color) {
 function applyCursor() {
   const pal = THEMES[settings.board].palette;
   const t = board.tool;
-  board.baseCursor = t === 'lasso' ? 'cell' : t === 'pen' ? pencilCursor(pal[board.color] || pal.auto) : 'none';
+  board.baseCursor = t === 'lasso' ? 'cell' : t === 'fill' ? 'crosshair' : t === 'pen' ? pencilCursor(pal[board.color] || pal.auto) : 'none';
   // while the pen touches the screen Windows hides the pointer: the board draws this pencil itself
   const img = new Image();
   img.src = board.baseCursor.startsWith('url') ? board.baseCursor.match(/url\("(.*?)"\)/)[1] : '';
@@ -2931,6 +3058,14 @@ document.querySelectorAll('.swatch').forEach(b => b.addEventListener('click', ()
 
 const sizeEl = $('#size');
 if (settings.penSize == null) settings.penSize = (settings.size ?? 3) + 1.5; // older setting stored an offset
+// Medium and Bold became thinner (4.5 → 3.2, 9 → 5, 7 Oct 2026): the pen and stored pens follow, once
+if (!settings.widths2) {
+  const m = v => (Math.abs(v - 4.5) < 0.01 ? 3.2 : Math.abs(v - 9) < 0.01 ? 5 : v);
+  settings.penSize = m(settings.penSize);
+  for (const st of settings.penSlots || []) if (st) st.size = m(st.size);
+  settings.widths2 = true;
+  saveSettings();
+}
 sizeEl.value = settings.penSize;
 const applySize = () => {
   board.size = settings.penSize = Number(sizeEl.value);
@@ -2947,7 +3082,7 @@ applySize();
 // palette open until a choice, Esc or a click elsewhere. While a slot palette is open, 1-5 pick.
 const PEN_COLORS = ['auto', 'blue', 'red', 'green', 'orange', 'purple', 'teal', 'yellow'];
 const PEN_COLOR_NAMES = { auto: 'Ink', blue: 'Blue', red: 'Red', green: 'Green', orange: 'Orange', purple: 'Purple', teal: 'Teal', yellow: 'Yellow' };
-const PEN_WIDTHS = [['Fine', 2], ['Medium', 4.5], ['Bold', 9]];
+const PEN_WIDTHS = [['Fine', 2], ['Medium', 3.2], ['Bold', 5]];
 const SEE_THROUGH = 0.4;
 const penStyle = () => ({ color: board.color, size: board.size, alpha: board.alpha, dash: board.dash });
 function applyPenStyle(st) {
@@ -3501,6 +3636,7 @@ document.addEventListener('keydown', e => {
   else if (!e.ctrlKey && !e.metaKey && k === 'b') toggleBoxes();
   else if (!e.ctrlKey && !e.metaKey && k === 'i' && curPage().panes?.length) setInteract(!htmlInteract);
   else if (!e.ctrlKey && !e.metaKey && k === 't') setTool('text');
+  else if (!e.ctrlKey && !e.metaKey && k === 'f') setTool(board.tool === 'fill' ? 'pen' : 'fill'); // F: paint bucket
   else if (k === 'escape' && $('#pagesView')) closePages();
   else if (!e.ctrlKey && !e.metaKey && !e.altKey && (k === 'arrowright' || k === 'pagedown')) { e.preventDefault(); if (state.cur < state.pages.length - 1) gotoPage(state.cur + 1); }
   else if (!e.ctrlKey && !e.metaKey && !e.altKey && (k === 'arrowleft' || k === 'pageup')) { e.preventDefault(); if (state.cur > 0) gotoPage(state.cur - 1); }

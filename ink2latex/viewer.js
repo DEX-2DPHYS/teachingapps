@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-07.1929';
-import { TextLayer } from './textboxes.js?v=2026-10-07.1929';
-import { drawImages } from './figures.js?v=2026-10-07.1929';
-import { initFullscreen } from './fullscreen.js?v=2026-10-07.1929';
-import { paneLayer } from './panes.js?v=2026-10-07.1929';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-07.1955';
+import { TextLayer } from './textboxes.js?v=2026-10-07.1955';
+import { drawImages } from './figures.js?v=2026-10-07.1955';
+import { initFullscreen } from './fullscreen.js?v=2026-10-07.1955';
+import { paneLayer } from './panes.js?v=2026-10-07.1955';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -211,6 +211,12 @@ function svgPath(points) {
   return d + 'Z';
 }
 function strokePath(s) {
+  if (s.fill) { // a paint-bucket fill: its points are the outline of the area
+    const p = new Path2D();
+    s.pts.forEach(([x, y], i) => (i ? p.lineTo(x, y) : p.moveTo(x, y)));
+    p.closePath();
+    return p;
+  }
   const outline = getStroke(s.pts, {
     size: s.size, thinning: s.shape ? 0 : s.size < 2 ? 0.15 : 0.55, smoothing: 0.5,
     streamline: s.shape ? 0 : s.pen ? 0.15 : 0.4, simulatePressure: !s.pen && !s.shape, last: true,

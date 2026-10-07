@@ -675,7 +675,7 @@ body[data-board="black"] #asgChip { background: #4a3a14; color: #ffe7a6; }
 #figMenu.tmenu { flex-direction: column; }
 
 /* the floating tool bar outside full screen: it sits over the page's left margin */
-body.fs-tools:not(.fs) #boardWrap { padding-left: 62px; }
+body.fs-tools:not(.fs) #boardWrap { padding-left: 50px; }
 
 /* Use / Write over an HTML pane: near its top edge or over it, in Select mode, while it is in use; always on touch screens */
 .pane-bar { opacity: 0; pointer-events: none; transition: opacity .15s; }
@@ -702,10 +702,23 @@ body.fs-tools:not(.fs) #boardWrap { padding-left: 62px; }
 
 /* the tool bar outside full screen: under the menu line, compact buttons; on narrow screens the panel
    below the page leaves room for it too */
-body.fs-tools:not(.fs) #fsBar { top: 54px; transform: none; gap: 2px; padding: 5px; max-height: calc(100vh - 64px); overflow-y: auto; }
-body.fs-tools:not(.fs) #fsBar button { width: 36px; height: 34px; font-size: 16px; }
+body.fs-tools:not(.fs) #fsBar { top: 54px; transform: none; max-height: calc(100vh - 64px); overflow-y: auto; }
+/* compact: small buttons, little spacing (also in full screen) */
+#fsBar { gap: 1px !important; padding: 4px !important; border-radius: 10px !important; }
+#fsBar button { width: 30px !important; height: 28px !important; font-size: 15px !important; border-radius: 7px !important; }
+#fsBar hr { margin: 2px 3px !important; }
+#fsBar .fs-label { font-size: 10px !important; padding: 0 !important; }
 body.fs-tools:not(.fs) #fsBar button.fs-close { height: 22px; font-size: 12px; }
-@media (max-width: 800px) { body.fs-tools:not(.fs) #panel { padding-left: 56px; } }
+@media (max-width: 800px) { body.fs-tools:not(.fs) #panel { padding-left: 46px; } }
 /* items keep their size, so a full bar switches to symbols (.compact) instead of squeezing one */
 #toolbar > * { flex-shrink: 0; }
 #toolbar > .bar-spacer { flex-shrink: 1; }
+
+/* the panel in full screen: floating (drag it by its head) or docked at the right (📌) */
+#panelPin, #panelFsClose { display: none; padding: 1px 8px; font-size: 12px; margin-left: 6px; }
+body.fs #panelPin, body.fs #panelFsClose { display: inline-block; }
+body.fs.fs-panel-dock #panel.fs-hide, body.fs.fs-panel-dock #panelResizer.fs-hide { display: block !important; }
+body.fs.fs-panel-float #panel.fs-hide { display: block !important; position: fixed; z-index: 240; top: 56px; right: 16px; width: min(380px, 90vw) !important;
+  max-height: 75vh; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 32px rgba(0,0,0,.25); }
+body.fs.fs-panel-float #panelHead { cursor: move; position: sticky; top: 0; z-index: 2; background: var(--panel); padding-top: 6px; margin-top: 0; }
+body.fs #panelHead { align-items: center; }

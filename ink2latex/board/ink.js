@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-07.1929';
+import { recognize } from './shapes.js?v=2026-10-07.1955';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -43,6 +43,13 @@ export function strokeOptions(s, last = true) {
 
 export function strokePath(s, last = true) {
   if (last && s._path) return s._path;
+  if (s.fill) { // a paint-bucket fill: its points are the outline of the area
+    const p = new Path2D();
+    s.pts.forEach(([x, y], i) => (i ? p.lineTo(x, y) : p.moveTo(x, y)));
+    p.closePath();
+    if (last) s._path = p;
+    return p;
+  }
   const outline = getStroke(s.pts, strokeOptions(s, last));
   let p;
   if (outline.length < 4) {
@@ -625,6 +632,15 @@ export class Board {
     this.request();
   }
 
+  // a finished stroke made elsewhere (the paint bucket): kept, sent and undone like a written one
+  addStroke(st) {
+    st.id = ++this.seq;
+    this.page.strokes.push(st);
+    this.push({ type: 'add', strokes: [st] }, 'add');
+    this.fullDirty = true;
+    this.request();
+  }
+
   push(act, kind) {
     this.page.undo.push(act);
     this.page.redo = [];
@@ -661,8 +677,9 @@ export class Board {
       if (p[0] < b.x0 - r || p[0] > b.x1 + r || p[1] < b.y0 - r || p[1] > b.y1 + r) continue;
       let hit = s.pts.length === 1 && Math.hypot(p[0] - s.pts[0][0], p[1] - s.pts[0][1]) < r;
       for (let k = 1; k < s.pts.length && !hit; k++) hit = segDist(p, s.pts[k - 1], s.pts[k]) < r;
+      if (!hit && s.fill) hit = insidePolygon(p, s.pts); // a fill goes when the eraser touches it anywhere
       if (!hit) continue;
-      if (!a.partial) { list.splice(i, 1); a.removed.push(s); continue; }
+      if (!a.partial || s.fill) { list.splice(i, 1); a.removed.push(s); continue; }
       const pieces = this.cutAround(s, p, r);
       list.splice(i, 1, ...pieces);
       const k = a.added.indexOf(s);
