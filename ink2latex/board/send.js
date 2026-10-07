@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-06.1231';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-07.1929';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -57,10 +57,17 @@ export function initSend(app) {
     btn.classList.toggle('live', S.live);
     btn.innerHTML = S.live
       ? `<span class="live-dot"></span> LIVE ${esc(S.lecture?.join_code || '')}`
-      : '📡 Send';
-    btn.title = S.live ? `Sending to students. Last sent ${S.lastSent ? S.lastSent.toLocaleTimeString() : '-'}` : 'Send this lecture live to students';
+      : '🎓<span class="lbl"> Lecture</span>';
+    btn.title = S.live ? `Sending to students. Last sent ${S.lastSent ? S.lastSent.toLocaleTimeString() : '-'}` : 'Lecture: sign in, create or open a lecture, send it to the students, assignments, save and export';
   }
 
+  // saving and exporting the board (they run the same actions as Settings → Export)
+  const fileItems = () => `<div class="lec-files"><strong class="small">This board</strong>
+      <button data-s="file" data-x="save" title="Save the whole board as a file (.json)">💾 Save session</button>
+      <button data-s="file" data-x="load" title="Open a saved board file">📂 Open session…</button>
+      <button data-s="file" data-x="tex" title="All transcriptions as a LaTeX file">⇩ LaTeX (.tex)</button>
+      <button data-s="file" data-x="md" title="All transcriptions as Markdown">⇩ Markdown (.md)</button>
+      <button data-s="file" data-x="print" title="Each page as it looks, then its transcription">🖨 Print / PDF…</button></div>`;
   async function render() {
     renderBtn();
     if (menu.hidden) return;
@@ -71,7 +78,8 @@ export function initSend(app) {
         <input id="sendEmail" type="email" placeholder="email" autocomplete="username">
         <input id="sendPass" type="password" placeholder="password" autocomplete="current-password">
         <div class="actions"><button data-s="login">Sign in</button></div>
-        ${S.error ? `<div class="error-msg">${esc(S.error)}</div>` : ''}`;
+        ${S.error ? `<div class="error-msg">${esc(S.error)}</div>` : ''}
+        ${fileItems()}`;
       return;
     }
     if (S.view === 'new') {
@@ -108,8 +116,9 @@ export function initSend(app) {
         <div class="dim small">${S.live ? `Live: every change is sent ~${SEND_DELAY / 1000} s after you stop writing.${S.lastSent ? ` Last sent ${S.lastSent.toLocaleTimeString()}.` : ''}` : 'Not sending. Students see the state of the last send.'}</div>
         ${VIEWER_URL ? '' : '<div class="warn small">The viewer is not hosted yet: this link only works on this PC. Set VIEWER_URL in viewer/config.js once it is on GitHub Pages.</div>'}
       ` : '<p class="dim">No lecture chosen yet.</p>'}
-      <div class="actions"><button data-s="new">New lecture…</button><button data-s="pick">My lectures…</button>${L ? '<button data-s="review" title="All comments, questions and your replies for this lecture, also hidden ones; download">💬 Questions &amp; comments</button>' : ''}</div>
-      ${S.error ? `<div class="error-msg">${esc(S.error)}</div>` : ''}`;
+      <div class="actions"><button data-s="new">New lecture…</button><button data-s="pick">My lectures…</button>${L ? '<button data-s="review" title="All comments, questions and your replies for this lecture, also hidden ones; download">💬 Questions &amp; comments</button><button data-s="asg" title="Give pages to the students, see their hand-ins, review and return them">📝 Assignments</button>' : ''}</div>
+      ${S.error ? `<div class="error-msg">${esc(S.error)}</div>` : ''}
+      ${fileItems()}`;
   }
 
   async function refreshUser() {
@@ -117,6 +126,13 @@ export function initSend(app) {
     const { data } = await c.auth.getSession();
     const u = data.session?.user;
     S.user = u && !u.is_anonymous ? u : null;
+    // only accounts on the lecturer list may create lectures, upload and use the cloud AI
+    if (S.user && S.lecChecked !== S.user.id) { // once per sign-in
+      S.lecChecked = S.user.id;
+      const { data: lec, error } = await (await client()).from('lecturers').select('user_id').eq('user_id', S.user.id).maybeSingle();
+      S.notLecturer = !error && !lec;
+      if (S.notLecturer) S.error = `${S.user.email} is signed in but not on the DTUwrite lecturer list, so it cannot create lectures, upload or use the cloud AI. Ask the maintainer to add it.`;
+    }
   }
 
   // ---- actions
@@ -126,6 +142,8 @@ export function initSend(app) {
     const { data, error } = await c.auth.signInWithPassword({ email: $('#sendEmail').value.trim(), password: $('#sendPass').value });
     if (error) { S.error = error.message; render(); return; }
     S.user = data.user;
+    S.lecChecked = null;
+    await refreshUser().catch(() => {}); // is this account on the lecturer list? (sets S.error if not)
     app.onLogin?.();
     render();
   }
@@ -159,7 +177,10 @@ export function initSend(app) {
         render();
         return;
       }
-      if (!/duplicate|unique/i.test(error.message)) { S.error = error.message; render(); return; }
+      if (!/duplicate|unique/i.test(error.message)) {
+        S.error = /row-level security/i.test(error.message) ? `${S.user?.email || 'This account'} is not on the DTUwrite lecturer list, so it cannot create lectures. Ask the maintainer to add it.` : error.message;
+        render(); return;
+      }
     }
     S.error = 'Could not find a free join code, try again.';
     render();
@@ -346,6 +367,8 @@ export function initSend(app) {
     if (!t) return;
     e.preventDefault();
     const a = t.dataset.s;
+    if (a === 'asg') { menu.hidden = true; document.querySelector('#asgBtn')?.click(); return; }
+    if (a === 'file') { menu.hidden = true; document.querySelector(`#exportMenu [data-export="${t.dataset.x}"]`)?.click(); return; }
     if (t.dataset.pick) {
       const l = t.dataset.pick === 'local' ? null : S.lectures.find(x => x.id === t.dataset.pick);
       S.view = 'main'; S.error = '';

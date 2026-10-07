@@ -6,96 +6,74 @@
 <title>DTUwrite</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-06.1231">
+<link rel="stylesheet" href="style.css?v=2026-10-07.1929">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
 
 <header id="toolbar">
   <button id="aboutBtn" title="About DTUwrite (K: keyboard shortcuts)"><span class="wordmark" aria-label="DTUwrite"><span class="wm-dt">DT</span><span class="wm-u">Uwrite</span></span></button>
-  <div class="group">
-    <button data-tool="pen" class="active" title="Pen (P or Shift switches pen / laser)">✎<span class="lbl"> Pen</span></button>
-    <button data-tool="laser" title="Laser pointer (P or Shift switches pen / laser): point, or draw a red trace that fades after 5 s. Not saved, not sent.">🔴<span class="lbl"> Laser</span></button>
-    <button data-tool="eraser" title="Eraser. E: erases whole strokes. X: erases only what it touches, the rest of the line stays. Click the button again to switch between the two. Or hold Ctrl while writing; the eraser end of the Wacom pen also works.">⌫<span class="lbl"> Eraser</span></button>
-    <button data-tool="lasso" title="Select (S): draw a loop around strokes, then drag to move, drag the corner to resize, or Group them into one region">◌<span class="lbl"> Select</span></button>
-    <button data-tool="text" title="Text (T): click on the page to type. Click a box again to edit it, drag its right edge to change the width, ✥ to move it. Students see the text.">T<span class="lbl"> Text</span></button>
-    <span class="swatches">
-      <button class="swatch active" data-color="auto" title="Default ink"></button>
-      <button class="swatch" data-color="blue" title="Blue"></button>
-      <button class="swatch" data-color="red" title="Red"></button>
-      <button class="swatch" data-color="green" title="Green"></button>
-    </span>
-    <input type="range" id="size" min="0.5" max="12" step="0.25" value="4.5" title="Pen width">
+  <div class="menu">
+    <button id="sendBtn" class="mbtn" title="Lecture: sign in, create or open a lecture, send it to the students, assignments, save and export">🎓<span class="lbl"> Lecture</span></button>
+    <div id="sendMenu" class="popup" hidden></div>
   </div>
-
-  <div class="group">
-    <button id="undo" title="Undo (Ctrl+Z)">↶</button>
-    <button id="redo" title="Redo (Ctrl+Y)">↷</button>
+  <button id="asgBtn" class="mbtn student-only" title="Assignments: open an assignment, hand it in with 📤 Transmit, see the feedback.">📝<span class="lbl"> Assignments</span></button>
+  <div class="menu">
+    <button id="figBtn" class="mbtn" title="Insert: slides, a figure, an HTML page or a photo of a page">🖼<span class="lbl"> Insert</span><span class="caret">▾</span></button>
+    <div id="figMenu" class="popup tmenu" hidden>
+      <button data-fig="slides" title="Each page of the PDF becomes a page here, with the slide as background. Export slides from PowerPoint as PDF.">🖼 Slides (PDF)…</button>
+      <button data-fig="figure" title="An image on this page, under the ink. Move, resize or delete it with the Select tool (S).">🏞 Figure (image)…</button>
+      <button data-fig="html" title="A single-file, self-contained HTML page (e.g. a simulation) on this page, under the ink. Use / Write appears at its top edge; Select (S) moves, resizes and sets it up.">⧉ HTML (simulation)…</button>
+      <button data-fig="photo" title="Transcribe a photo of a page (camera on phones). You can also drop or paste an image.">📷 Photo of a page…</button>
+      <hr>
+      <button data-fig="clear" title="Remove slides and figures, writing, or both: on this page or on all pages">🗑 Clear…</button>
+    </div>
+    <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
+    <input type="file" id="figInput" accept="image/*" hidden>
+    <input type="file" id="htmlInput" accept=".html,.htm,text/html" hidden>
+    <input type="file" id="photoInput" accept="image/*,.heic,.heif" capture="environment" hidden>
   </div>
-
-  <div class="group">
-    <button id="pagePrev" title="Previous page">◀</button>
-    <span id="pageLabel" title="Page overview (click)">1 / 1</span>
-    <button id="pageNext" title="Next page">▶</button>
-    <button id="pageNew" title="New page">+<span class="lbl"> Page</span></button>
-    <button id="pagesBtn" title="All pages: overview with thumbnails. Go to a page, drag to reorder, hide from students, duplicate, delete, add.">▦<span class="lbl"> Pages</span></button>
-    <button id="fitPage" title="Fit to page: scale everything on this page down so it fits inside the page margins (undo with Ctrl+Z)">⤢<span class="lbl"> Fit</span></button>
-    <button id="clear" title="Clear this page (undo with Ctrl+Z)">🗑<span class="lbl"> Clear</span></button>
+  <div class="menu">
+    <button id="pagesMenuBtn" class="mbtn" title="Pages: overview, new page, fit, clear">▦<span class="lbl"> Pages</span><span class="caret">▾</span></button>
+    <div id="pagesMenu" class="popup tmenu" hidden>
+      <button id="pagesBtn" title="All pages: overview with thumbnails. Go to a page, drag to reorder, hide from students, duplicate, delete, add.">▦ Overview…</button>
+      <button id="pageNew" title="A new page after this one">＋ New page</button>
+      <button id="fitPage" title="Scale everything on this page down so it fits inside the page margins (undo with Ctrl+Z)">⤢ Fit writing to the page</button>
+      <button id="clear" title="Clear this page (undo with Ctrl+Z)">🗑 Clear this page</button>
+    </div>
   </div>
-
-  <div class="group">
-    <button id="zoomOut" title="Zoom out: the page gets smaller, so you have more room (Ctrl + wheel)">−</button>
-    <button id="zoomReset" title="Fit the page to the window width">100%</button>
-    <button id="zoomIn" title="Zoom in (Ctrl + wheel)">+</button>
-  </div>
-
-  <div class="group">
-    <div class="menu">
-      <button id="viewBtn" title="Show the handwriting, the typeset transcription on the page, or both; and the students' comments and questions">View ▾</button>
-      <div id="viewMenu" class="popup" hidden>
+  <div class="menu">
+    <button id="viewBtn" class="mbtn" title="View: ink or typeset, region boxes, student markers, panel, tool bar, full screen">👁<span class="lbl"> View</span><span class="caret">▾</span></button>
+    <div id="viewMenu" class="popup" hidden>
         <label><input type="radio" name="view" value="ink"> Ink</label>
         <label><input type="radio" name="view" value="typeset"> Typeset</label>
         <label><input type="radio" name="view" value="both"> Ink + typeset</label>
         <hr>
         <label title="Green circles = comments, red circles = questions, where the students placed them"><input type="checkbox" id="showStudent"> Student comments &amp; questions</label>
-      </div>
+      <label title="Show or hide the transcription panel"><input type="checkbox" id="showPanel"> Transcription panel</label>
+      <label title="The floating tool bar at the left (pen, eraser, colours, undo, zoom, pages). Hidden: the keys still work."><input type="checkbox" id="showTools"> Tool bar</label>
+      <hr>
+      <button id="boxesBtn" title="Region boxes and numbers (B cycles): all / only the one under the pen / off (clean page)">▢ Boxes</button>
+      <button id="previewBtn" title="Hold to preview: every region shows its transcription in place of the ink while you hold this button or the Space key">👁 Preview typeset (hold, or Space)</button>
+      <button id="fsBtn" title="Full screen: the page fills the screen with the tool bar at the left; the menu comes back at the top edge (or the ▾ tab). Esc leaves.">⛶ Full screen</button>
     </div>
-    <button id="boxesBtn" title="Region boxes and numbers (B cycles): all / only the one under the pen / off (clean page)">▢ Boxes</button>
-    <button id="previewBtn" title="Hold to preview: every region shows its transcription in place of the ink while you hold this button or the Space key; let go to see the ink again">👁<span class="lbl"> Preview</span></button>
   </div>
-
-  <div class="group">
-    <button id="htmlBtn" title="Use the HTML on this page (click, drag, type in it). Press again, choose a pen tool, or press I, to write on it." hidden>🖱<span class="lbl"> Interact</span></button>
-    <label class="check live-toggle" title="Live: transcribe automatically when you pause (model in ⚙ Settings)"><input type="checkbox" id="auto" checked> Live</label>
-    <select id="readMode" title="How carefully the AI reads">
+  <div class="menu">
+    <button id="aiBtn" class="mbtn" title="AI: live reading, accuracy, interpret the page">✦<span class="lbl"> AI</span><span class="caret">▾</span></button>
+    <div id="aiMenu" class="popup tmenu" hidden>
+      <label class="check live-toggle" title="Live: transcribe automatically when you pause"><input type="checkbox" id="auto" checked> Live reading <span class="dim small">when you pause</span></label>
+      <label class="row" title="How carefully the AI reads">Accuracy <select id="readMode" title="How carefully the AI reads">
       <option value="fast">Fast</option>
       <option value="balanced">Balanced</option>
       <option value="careful">Careful</option>
       <option value="custom" hidden disabled>Custom</option>
-    </select>
-    <span id="toolCost" class="dim small" title="Estimated AI cost this session"></span>
-    <button id="interpret" title="Read the whole page in context (final model): fixes misreadings, groups split expressions, writes a clean document. Never corrects the maths.">Interpret</button>
-    <div class="menu">
-      <button id="figBtn" title="Slides and figures: import a PDF (each page becomes a slide to write on), or put an image on this page">🖼<span class="lbl"> Figures</span></button>
-      <div id="figMenu" class="popup" hidden>
-        <button data-fig="slides" title="Each page of the PDF becomes a page here, with the slide as background. Export slides from PowerPoint as PDF.">Import slides (PDF)…</button>
-        <button data-fig="figure" title="An image on this page, under the ink. Move, resize or delete it with the Select tool (S).">Insert figure (image)…</button>
-        <button data-fig="html" title="A single-file, self-contained HTML page (e.g. a simulation) on this page, under the ink. 🖱 (or I) switches between using it and writing on it; Select (S) moves, resizes and sets it up.">Insert HTML…</button>
-        <button data-fig="clear" title="Remove slides and figures, writing, or both: on this page or on all pages">Clear…</button>
-      </div>
-      <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
-      <input type="file" id="figInput" accept="image/*" hidden>
-      <input type="file" id="htmlInput" accept=".html,.htm,text/html" hidden>
+    </select></label>
+      <button id="interpret" title="Read the whole page in context (final model): fixes misreadings, groups split expressions, writes a clean document. Never corrects the maths.">✦ Interpret page</button>
+      <button id="aiModels" title="The models and the reading settings (Settings → AI)">⚙ Models and reading settings…</button>
     </div>
-    <button id="photoBtn" title="Photo: transcribe a photo of a page (camera on phones). You can also drop or paste an image.">📷<span class="lbl"> Photo</span></button>
-    <input type="file" id="photoInput" accept="image/*,.heic,.heif" capture="environment" hidden>
-    <button id="asgBtn" title="Assignments: give pages to the students, see their hand-ins, review and return them. Students: open an assignment, hand it in with 📤 Transmit, see the feedback.">📝<span class="lbl"> Assignments</span></button>
+  </div>
     <div class="menu">
-      <button id="sendBtn">📡 Send</button>
-      <div id="sendMenu" class="popup" hidden></div>
-    </div>
-    <div class="menu">
-      <button id="settingsBtn" title="Settings: board, AI, pen, export, tools">⚙<span class="lbl"> Settings</span></button>
+      <button id="settingsBtn" class="mbtn" title="Settings: board, AI, pen, export, tools">⚙<span class="lbl"> Settings</span></button>
       <div id="settingsMenu" class="popup" hidden>
         <section>
           <h4>Board</h4>
@@ -178,15 +156,29 @@
         </section>
       </div>
     </div>
-  </div>
+  <span class="bar-spacer"></span>
+  <span id="toolCost" class="dim small" title="Estimated AI cost this session"></span>
+  <button id="panelToggle" class="mbtn" title="Show / hide the transcription panel">▤<span class="lbl"> Panel</span></button>
 
-  <!-- panel on/off with its own text size, always in the top right corner -->
-  <button id="fsBtn" title="Full screen: the page fills the screen, a small tool bar at the left; the menu comes back at the top edge (or the ▾ tab). Esc leaves.">⛶</button>
-  <div id="panelCtl" class="joined">
-    <button id="panelToggle" title="Show / hide the transcription panel">Panel</button>
-    <button id="panelZoomOut" title="Smaller text in the panel (or Ctrl + wheel over the panel)">−</button>
-    <button id="panelZoomReset" title="Panel text size: click to reset">100%</button>
-    <button id="panelZoomIn" title="Larger text in the panel (or Ctrl + wheel over the panel)">+</button>
+  <!-- the old tool buttons: hidden, their handlers still run (the floating tool bar and the keys use them) -->
+  <div id="legacyTools" hidden>
+    <button data-tool="pen" class="active" title="Pen (P or Shift switches pen / laser)">✎<span class="lbl"> Pen</span></button>
+    <button data-tool="laser" title="Laser pointer (P or Shift switches pen / laser): point, or draw a red trace that fades after 5 s. Not saved, not sent.">🔴<span class="lbl"> Laser</span></button>
+    <button data-tool="eraser" title="Eraser. E: erases whole strokes. X: erases only what it touches, the rest of the line stays. Click the button again to switch between the two. Or hold Ctrl while writing; the eraser end of the Wacom pen also works.">⌫<span class="lbl"> Eraser</span></button>
+    <button data-tool="lasso" title="Select (S): draw a loop around strokes, then drag to move, drag the corner to resize, or Group them into one region">◌<span class="lbl"> Select</span></button>
+    <button data-tool="text" title="Text (T): click on the page to type. Click a box again to edit it, drag its right edge to change the width, ✥ to move it. Students see the text.">T<span class="lbl"> Text</span></button>
+    <span class="swatches">
+      <button class="swatch active" data-color="auto" title="Default ink"></button>
+      <button class="swatch" data-color="blue" title="Blue"></button>
+      <button class="swatch" data-color="red" title="Red"></button>
+      <button class="swatch" data-color="green" title="Green"></button>
+    </span>
+    <input type="range" id="size" min="0.5" max="12" step="0.25" value="4.5" title="Pen width">
+    <button id="undo">↶</button><button id="redo">↷</button>
+    <button id="pagePrev">◀</button><span id="pageLabel">1 / 1</span><button id="pageNext">▶</button>
+    <button id="zoomOut">−</button><button id="zoomReset">100%</button><button id="zoomIn">+</button>
+    <button id="htmlBtn" hidden>🖱</button>
+    <button id="photoBtn">📷</button>
   </div>
 </header>
 
@@ -213,13 +205,21 @@
       <div id="panelHead">
         <strong>Transcription</strong>
         <span id="cost" title="API cost this session"></span>
+        <span class="joined" id="panelZoom"><button id="panelZoomOut" title="Smaller text in the panel (or Ctrl + wheel over the panel)">−</button><button id="panelZoomReset" title="Panel text size: click to reset">100%</button><button id="panelZoomIn" title="Larger text in the panel (or Ctrl + wheel over the panel)">+</button></span>
       </div>
       <div id="cardBar">
         <span id="cardFilter" class="joined" title="Show every card, or only the regions that need a look (uncertain, readings disagree, a suggestion, an error)">
           <button data-f="all">All</button><button data-f="attention">Needs attention</button>
         </span>
-        <button id="nextAttn" hidden title="Go to the next region that needs a look: its card opens and its place on the page lights up (N)">⚠ Next</button>
-        <label class="check" title="Put the cards that need attention first. Off: the cards follow the numbers on the page."><input type="checkbox" id="attnFirst"> Attention first</label>
+        <div class="menu cardmore">
+          <button id="cardMoreBtn" title="More: next region that needs a look, fold all, open all, order of the cards">⋯</button>
+          <div id="cardMore" class="popup tmenu" hidden>
+            <button id="nextAttn" hidden title="Go to the next region that needs a look: its card opens and its place on the page lights up (N)">⚠ Next</button>
+            <button id="foldAll" title="Fold every card of this page to one line (click a card to open it)">▴ Fold all</button>
+            <button id="openAll" title="Open every card of this page">▾ Open all</button>
+            <label class="check" title="Put the cards that need attention first. Off: the cards follow the numbers on the page."><input type="checkbox" id="attnFirst"> Cards that need a look first</label>
+          </div>
+        </div>
       </div>
       <div id="interpCard"></div>
       <div id="cards"></div>
@@ -231,6 +231,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-06.1231"></script>
+<script type="module" src="app.js?v=2026-10-07.1929"></script>
 </body>
 </html>

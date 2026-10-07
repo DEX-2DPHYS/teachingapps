@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-06.1231';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-06.1231';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-06.1231';
-import { initSend } from './send.js?v=2026-10-06.1231';
-import { initStudent } from './student.js?v=2026-10-06.1231';
-import { initAssign } from './assign.js?v=2026-10-06.1231';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-06.1231';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-06.1231';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-06.1231';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-06.1231';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-07.1929';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-07.1929';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-07.1929';
+import { initSend } from './send.js?v=2026-10-07.1929';
+import { initStudent } from './student.js?v=2026-10-07.1929';
+import { initAssign } from './assign.js?v=2026-10-07.1929';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-07.1929';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-07.1929';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-07.1929';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-07.1929';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -326,7 +326,7 @@ document.addEventListener('pointerdown', e => {
     if (!b) return;
     menu.hidden = true;
     if (b.dataset.fig === 'clear') { openClearDialog(); return; }
-    $({ slides: '#pdfInput', figure: '#figInput', html: '#htmlInput' }[b.dataset.fig]).click();
+    $({ slides: '#pdfInput', figure: '#figInput', html: '#htmlInput', photo: '#photoInput' }[b.dataset.fig]).click();
   });
   document.addEventListener('click', () => { menu.hidden = true; });
   $('#pdfInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importSlides(f); });
@@ -493,6 +493,9 @@ $('#boardWrap').addEventListener('pointermove', e => {
   const r = $('#sheet').getBoundingClientRect(), s = board.s, x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s, near = 48 / s;
   const p = pns.find(q => Math.abs(x - q.x) < near && Math.abs(y - q.y) < near);
   panes.peek(p ? p.id : null);
+  // its Use / Write bar: shown over the pane and in a band above it
+  const over = pns.find(q => x > q.x - near / 2 && x < q.x + q.w + near / 2 && y > q.y - 2 * near && y < q.y + q.h);
+  document.querySelectorAll('#paneChips .pane-bar').forEach(el => el.classList.toggle('near', el.dataset.id === over?.id));
 });
 
 // snapshots for students (panes set to "snapshot"): taken when the page has changed, before sending
@@ -691,31 +694,62 @@ document.addEventListener('pointerdown', e => {
 }, true);
 $('#pagesBtn').addEventListener('click', openPages);
 
+// ---- the menu line: Pages, AI and the panel's ⋯ open like the other menus; their buttons close them
+for (const [btn, id] of [['#pagesMenuBtn', '#pagesMenu'], ['#aiBtn', '#aiMenu'], ['#cardMoreBtn', '#cardMore']]) {
+  const m = $(id);
+  $(btn).addEventListener('click', e => { e.stopPropagation(); m.hidden = !m.hidden; keepOnScreen(m); });
+  m.addEventListener('click', e => { e.stopPropagation(); if (e.target.closest('button') && !e.target.closest('select')) m.hidden = true; });
+  document.addEventListener('click', () => { m.hidden = true; });
+}
+$('#aiModels').addEventListener('click', () => { settings.setTab = 'AI'; saveSettings(); showSettingsTab(); $('#settingsMenu').hidden = false; keepOnScreen($('#settingsMenu')); });
+// opening one menu closes the others (each menu's own button stops the click that would close them)
+const MENU_BTNS = { sendBtn: 'sendMenu', figBtn: 'figMenu', pagesMenuBtn: 'pagesMenu', viewBtn: 'viewMenu', aiBtn: 'aiMenu', settingsBtn: 'settingsMenu' };
+$('#toolbar').addEventListener('pointerdown', e => {
+  const b = e.target.closest('button');
+  if (!b || !MENU_BTNS[b.id]) return;
+  for (const [k, id] of Object.entries(MENU_BTNS)) if (k !== b.id) $('#' + id).hidden = true;
+}, true);
+// the bar stays on one line: when the names do not fit, only the symbols show (the name is the tooltip)
+{
+  const bar = $('#toolbar');
+  const fit = () => { bar.classList.remove('compact'); if (bar.scrollWidth > bar.clientWidth + 1) bar.classList.add('compact'); };
+  new ResizeObserver(fit).observe(bar);
+  window.addEventListener('resize', fit);
+}
+
 // full screen: the page alone, essential tools in a floating bar at the left (viewer/fullscreen.js)
 const fullscreen = initFullscreen({
   toolbar: $('#toolbar'),
   hide: [$('#panel'), $('#panelResizer')],
-  menuOpen: () => !$('#settingsMenu').hidden || !$('#sendMenu').hidden || !$('#viewMenu').hidden || !$('#figMenu').hidden,
+  menuOpen: () => ['settingsMenu', 'sendMenu', 'viewMenu', 'figMenu', 'pagesMenu', 'aiMenu'].some(id => !$('#' + id).hidden),
+  persistent: settings.tools !== false,
+  onClose: () => { settings.tools = false; saveSettings(); applyTools(); toast('Tool bar hidden: View → Tool bar brings it back (the keys still work)'); },
   tools: [
-    { icon: '＋', tip: 'Zoom in (Ctrl + wheel)', run: () => board.setZoom(board.zoom * 1.2) },
-    { icon: '−', tip: 'Zoom out (Ctrl + wheel)', run: () => board.setZoom(board.zoom / 1.2) },
-    { icon: '⤢', tip: 'Fit the page to the width', run: () => board.setZoom(1) },
-    null,
     { icon: '✎', tip: 'Pen (P)', run: () => setTool('pen'), on: () => board.tool === 'pen' },
     { icon: '🔴', tip: 'Laser pointer (P or Shift)', run: () => setTool('laser'), on: () => board.tool === 'laser' },
-    { icon: '⌫', tip: 'Eraser (E)', run: () => setTool('eraser'), on: () => board.tool === 'eraser' },
+    { icon: '⌫', tip: 'Eraser: E erases whole strokes, X only what it touches; press again to switch', run: () => (board.tool === 'eraser' ? setEraser(!board.partialErase) : setTool('eraser')), on: () => board.tool === 'eraser' },
     { icon: '◌', tip: 'Select (S)', run: () => setTool('lasso'), on: () => board.tool === 'lasso' },
     { icon: 'T', tip: 'Text (T)', run: () => setTool('text'), on: () => board.tool === 'text' },
-    { icon: '🖱', tip: 'Use the HTML on this page / write on it (I)', run: () => curPage().panes?.length ? setInteract(!htmlInteract) : toast('No HTML on this page'), on: () => htmlInteract },
+    { icon: '🎨', tip: 'Pen colour, see-through, dashed, width (or hold C)', run: () => openPenPop('style') },
     null,
     { icon: '↶', tip: 'Undo (Ctrl+Z)', run: () => board.undo() },
     { icon: '↷', tip: 'Redo (Ctrl+Y)', run: () => board.redo() },
     null,
+    { icon: '＋', tip: 'Zoom in (Ctrl + wheel)', run: () => board.setZoom(board.zoom * 1.2) },
+    { icon: '⤢', tip: 'Fit the page to the width', run: () => board.setZoom(1) },
+    { icon: '−', tip: 'Zoom out (Ctrl + wheel)', run: () => board.setZoom(board.zoom / 1.2) },
+    null,
     { icon: '◀', tip: 'Previous page (←)', run: () => state.cur > 0 && gotoPage(state.cur - 1) },
+    { label: () => `${state.cur + 1}/${state.pages.length}`, tip: 'Page (▦ Pages → Overview)' },
     { icon: '▶', tip: 'Next page (→)', run: () => state.cur < state.pages.length - 1 && gotoPage(state.cur + 1) },
   ],
 });
-$('#fsBtn').addEventListener('click', () => fullscreen.toggle());
+function applyTools() {
+  fullscreen.setPersistent(settings.tools !== false);
+  $('#showTools').checked = settings.tools !== false;
+}
+applyTools();
+$('#fsBtn').addEventListener('click', () => { $('#viewMenu').hidden = true; fullscreen.toggle(); });
 $('#aboutBtn').addEventListener('click', openAboutDialog);
 // no long-press menu on the board (tablets), except in a text box being typed in
 $('#boardWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
@@ -1070,7 +1104,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-06.1231');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-07.1929');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1940,7 +1974,11 @@ function regionState(b) {
   if (answerValue(b)?.cls === 'err') return 'warn'; // a "= ?" that could not be answered: the card says why
   if (b.confirmed) return 'good';
   if (b.agreement === 'split') return 'bad';
-  if (b.suggest || r.uncertain?.length || b.agreement === 'majority' || b.pageAgree === false) return 'warn';
+  if (b.suggest || b.agreement === 'majority' || b.pageAgree === false) return 'warn';
+  // the app's own checks (LaTeX that does not render, brackets that do not balance) always need a look;
+  // the model's doubts only when a second reading did not settle them
+  if (r.uncertain?.some(u => /^(The LaTeX does not render|(Round|Square) brackets do not balance)/.test(u))) return 'warn';
+  if (r.uncertain?.length && b.agreement !== 'agree') return 'warn';
   return 'good';
 }
 const needsAttention = b => ['warn', 'bad'].includes(regionState(b));
@@ -1957,8 +1995,15 @@ function suggestHtml(b) {
 // and regions read as empty), so the column is mostly the ones worth a look. Opening one by hand
 // keeps it open until it is folded, confirmed, or the session ends (openCards is never saved).
 const openCards = new Set();
+const editCards = new Set();  // cards whose source / comment are open (⋯ → Edit / comment)
+let moreCard = null;          // the card whose ⋯ menu is open
+document.addEventListener('pointerdown', e => {
+  if (moreCard != null && !e.target.closest('.more-acts, .more-btn')) { moreCard = null; document.querySelectorAll('.more-acts.open').forEach(m => m.classList.remove('open')); }
+}, true);
+const foldedCards = new Set(); // folded by hand although they need a look (▴ or Fold all)
 function isCompact(b) {
   if (openCards.has(b.id)) return false;
+  if (foldedCards.has(b.id) && b.status !== 'busy') return true;
   return regionState(b) === 'good' || (b.status === 'ok' && b.result?.kind === 'empty');
 }
 
@@ -1975,11 +2020,11 @@ function fillCard(el, b, num) {
     // one line: number, the reading, and whether you confirmed it; a click opens the whole card
     el.title = 'Click to open this card';
     el.innerHTML = `<div class="card-head"><span class="num">${num}</span><div class="render mini">${blockContentHtml(b)}</div>
-      <span class="mark ${b.confirmed ? 'ok' : ''}" title="${b.confirmed ? 'Confirmed by you' : 'Read with nothing flagged'}">${b.confirmed ? '✓' : '●'}</span></div>`;
+      ${needsAttention(b) ? '<span class="mark warn" title="Folded, but it needs a look: click to open">⚠</span>' : `<span class="mark ${b.confirmed ? 'ok' : ''}" title="${b.confirmed ? 'Confirmed by you' : 'Read with nothing flagged'}">${b.confirmed ? '✓' : '●'}</span>`}</div>`;
     return;
   }
   el.title = '';
-  const fold = regionState(b) === 'good' ? '<button class="fold" data-act="fold" title="Fold this card to one line">▴</button>' : '';
+  const fold = b.status !== 'busy' && r ? '<button class="fold" data-act="fold" title="Fold this card to one line">▴</button>' : '';
   const head = `<span class="num">${num}</span><span class="kind">${r ? r.kind : ''}</span><span class="meta">${meta}</span>${fold}`;
   if (focused) {
     el.querySelector('.card-head').innerHTML = head;
@@ -1995,11 +2040,17 @@ function fillCard(el, b, num) {
     ${b.error ? `<div class="error-msg">${esc(b.error)}</div>` : ''}
     ${suggestHtml(b)}
     <ul class="uncertain">${(r?.uncertain || []).map(u => `<li>${esc(u)}</li>`).join('')}</ul>
-    ${r && r.kind !== 'empty' ? `<details><summary>Source (editable)</summary><textarea spellcheck="false">${esc(sourceOf(b))}</textarea></details>` : ''}
-    <input class="comment" placeholder="Comment: what this is meant to be (used as a hint when re-run)" value="${esc(b.comment || '')}">
+    <div class="card-edit${editCards.has(b.id) ? ' open' : ''}">
+      ${r && r.kind !== 'empty' ? `<details open><summary>Source (editable)</summary><textarea spellcheck="false">${esc(sourceOf(b))}</textarea></details>` : ''}
+      <input class="comment" placeholder="Comment: what this is meant to be (used as a hint when re-run)" value="${esc(b.comment || '')}">
+    </div>
+    ${b.comment && !editCards.has(b.id) ? `<div class="card-comment" title="Your comment (⋯ → Edit to change it)">💬 ${esc(b.comment)}</div>` : ''}
     <div class="actions">
       ${r ? `<button class="confirm ${b.confirmed ? 'on' : ''}" data-act="confirm" title="Mark as checked against the ink">✓ ${b.confirmed ? 'Confirmed' : 'Confirm'}</button>` : ''}
       ${b.orig ? '<button data-act="original" title="Go back to the region-by-region reading">↶ original</button>' : ''}
+      <button class="more-btn" data-act="more" title="More: read again, copy, calculate, edit, group">⋯</button>
+      <div class="more-acts${moreCard === b.id ? ' open' : ''}">
+      ${r && r.kind !== 'empty' ? `<button data-act="editsrc" title="Edit the source, or add a comment (a hint when it is read again)">✎ ${editCards.has(b.id) ? 'Close editing' : 'Edit / comment'}</button>` : ''}
       <button data-act="rerun" title="Transcribe again with ${MODELS[other]} (uses your comment)">↻ ${MODELS[other]}</button>
       ${isMath ? '<button data-act="latex" title="Copy LaTeX (also works in Word: Insert > Equation > LaTeX)">LaTeX</button>' : ''}
       ${isMath ? '<button data-act="word" title="Copy as MathML: paste into Word as a native equation">Word</button>' : ''}
@@ -2012,6 +2063,7 @@ function fillCard(el, b, num) {
       ${r && r.kind === 'figure' ? '<button data-act="straighten" title="Straighten axes and lines, clean arrowheads, smooth curves - on the page itself (undo with Ctrl+Z)">Straighten</button>' : ''}
       ${r && r.kind === 'figure' && !b.figure ? `<button data-act="figure" title="${heavyName()} redraws the sketch as a clean vector figure (SVG + TikZ), shown below the description" ${b.figureBusy ? 'disabled' : ''}>Redraw as figure</button>` : ''}
       ${b.figure ? '<button data-act="svg">SVG ↓</button><button data-act="tikz">TikZ</button><button data-act="nofig" title="Remove the redrawn figure from this card">✕ Figure</button>' : ''}
+      </div>
     </div>`;
 }
 
@@ -2041,9 +2093,12 @@ function cardFor(b) {
   });
   el.addEventListener('click', e => {
     const act = e.target.closest('button')?.dataset.act;
-    if (!act && el.classList.contains('compact')) { openCards.add(b.id); renderAll(); return; }
+    if (!act && el.classList.contains('compact')) { openCards.add(b.id); foldedCards.delete(b.id); renderAll(); return; }
     if (!act) return;
-    if (act === 'fold') { openCards.delete(b.id); renderAll(); return; }
+    if (act === 'more') { moreCard = moreCard === b.id ? null : b.id; el.querySelector('.more-acts')?.classList.toggle('open', moreCard === b.id); return; }
+    if (moreCard === b.id) { moreCard = null; el.querySelector('.more-acts')?.classList.remove('open'); }
+    if (act === 'editsrc') { editCards.has(b.id) ? editCards.delete(b.id) : editCards.add(b.id); openCards.add(b.id); renderAll(); return; }
+    if (act === 'fold') { openCards.delete(b.id); foldedCards.add(b.id); renderAll(); return; }
     // confirming folds the card: checked, so it no longer needs the room
     if (act === 'confirm') { b.confirmed = !b.confirmed; if (b.confirmed) openCards.delete(b.id); renderAll(); saveSoon(); }
     if (act === 'rerun') transcribe(b, settings.finalModel === b.model ? settings.liveModel : settings.finalModel);
@@ -2250,7 +2305,7 @@ function nextAttention() {
   const pick = need.find(({ b }) => list.findIndex(x => x.b === b) > at) || need[0];
   const b = pick.b;
   lastAttnId = b.id;
-  openCards.add(b.id);
+  openCards.add(b.id); foldedCards.delete(b.id);
   renderAll();
   cardEls.get(b.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   const box = blockBox(b);
@@ -2802,6 +2857,7 @@ function setTool(t) {
   if (htmlInteract) setInteract(false);
   if (t !== 'lasso') board.clearSelection();
   board.tool = t;
+  document.body.dataset.boardTool = t; // (not data-tool: that marks the tool buttons) the HTML panes' Use / Write bars show in Select mode
   textLayer.setActive(t === 'text');
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
   applyEraserLook();
@@ -3096,11 +3152,13 @@ const viewMenu = $('#viewMenu');
 for (const r of viewMenu.querySelectorAll('[name=view]')) r.checked = r.value === settings.view;
 $('#showStudent').checked = settings.showStudent !== false;
 $('#viewBtn').addEventListener('click', e => { e.stopPropagation(); viewMenu.hidden = !viewMenu.hidden; keepOnScreen(viewMenu); });
-viewMenu.addEventListener('click', e => e.stopPropagation());
+viewMenu.addEventListener('click', e => { e.stopPropagation(); if (e.target.closest('#previewBtn')) viewMenu.hidden = true; });
 document.addEventListener('click', () => { viewMenu.hidden = true; });
 viewMenu.addEventListener('change', e => {
   if (e.target.name === 'view') { settings.view = e.target.value; saveSettings(); renderAll(); }
   if (e.target.id === 'showStudent') { settings.showStudent = e.target.checked; saveSettings(); send?.renderDots(); }
+  if (e.target.id === 'showTools') { settings.tools = e.target.checked; saveSettings(); applyTools(); }
+  if (e.target.id === 'showPanel') { settings.panel = e.target.checked; saveSettings(); applyPanel(); }
 });
 
 for (const id of ['autoInterp', 'autoAccept', 'autoEval', 'autoMerge', 'readContext', 'lineGroup', 'twoReadings', 'pageCheck']) {
@@ -3157,6 +3215,9 @@ $('#cardFilter').addEventListener('click', e => {
   applyCardFilter(layoutOf());
 });
 $('#nextAttn').addEventListener('click', nextAttention);
+// Fold all / Open all: the cards of this page
+$('#foldAll').addEventListener('click', () => { for (const b of curPage().blocks) { openCards.delete(b.id); foldedCards.add(b.id); } renderAll(); });
+$('#openAll').addEventListener('click', () => { for (const b of curPage().blocks) { foldedCards.delete(b.id); openCards.add(b.id); } renderAll(); });
 $('#attnFirst').checked = !!settings.attnFirst;
 $('#attnFirst').addEventListener('change', e => { settings.attnFirst = e.target.checked; saveSettings(); renderAll(); });
 
@@ -3315,6 +3376,7 @@ function gotoPage(i) {
   $('#boardWrap').scrollTop = 0;
   renderAll();
   send?.changed(); // students following the lecturer switch page too
+  try { fullscreen.sync(); } catch { /* not set up yet */ }
 }
 $('#pagePrev').addEventListener('click', () => state.cur > 0 && gotoPage(state.cur - 1));
 $('#pageNext').addEventListener('click', () => state.cur < state.pages.length - 1 && gotoPage(state.cur + 1));
@@ -3324,6 +3386,7 @@ $('#pageNew').addEventListener('click', () => { state.pages.splice(state.cur + 1
 function applyPanel() {
   document.body.classList.toggle('no-panel', !settings.panel);
   $('#panelToggle').classList.toggle('on', !!settings.panel);
+  $('#showPanel').checked = !!settings.panel;
   $('#panel').style.width = (settings.panelWidth || 400) + 'px';
   const z = settings.panelZoom || 1;
   $('#panelBody').style.setProperty('--panel-zoom', z);

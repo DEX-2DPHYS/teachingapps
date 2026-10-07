@@ -35,20 +35,19 @@ body {
 #toolbar {
   position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
+  flex-wrap: nowrap; /* always one line: names give way to symbols (.compact) */
+  gap: 2px;
   align-items: center;
-  padding: 6px 200px 6px 10px; /* room for the panel control in the top right corner */
+  padding: 5px 8px;
+  white-space: nowrap;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
 .group { display: flex; align-items: center; gap: 4px; }
 /* narrower screens: the tool buttons show only their icon (the name is in the tooltip) */
-@media (max-width: 1500px) {
-  #toolbar .lbl { display: none; }
-  #toolbar { gap: 6px 8px; }
-  #size { width: 64px; }
-}
+#toolbar.compact .lbl, #toolbar.compact .caret { display: none; }
+#toolbar.compact .mbtn { padding: 5px 7px; }
+#toolbar.compact #toolCost { display: none; }
 button, select {
   font: inherit;
   color: var(--text);
@@ -265,7 +264,8 @@ body.no-panel #panel, body.no-panel #panelResizer { display: none; }
 #panelResizer:hover, #panelResizer.dragging { background: color-mix(in srgb, var(--accent) 35%, var(--panel)); }
 
 /* panel on/off + its text size, joined buttons in the top right corner */
-#panelCtl { position: absolute; top: 6px; right: 10px; display: flex; }
+#panelZoom { margin-left: 8px; }
+#panelZoom button { padding: 0 7px; font-size: 12px; }
 .joined button { border-radius: 0; margin-left: -1px; }
 .joined button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .joined button:last-child { border-radius: 0 6px 6px 0; }
@@ -448,8 +448,7 @@ details textarea {
   #boardWrap { flex: none; height: 62vh; padding: 6px 0; }
   #panel { width: auto !important; flex: 1; border-top: 1px solid var(--line); }
   #panelResizer { display: none; }
-  #toolbar { gap: 4px 8px; padding: 4px 6px; }
-  #panelCtl { position: static; }
+  #toolbar { padding: 4px 6px; }
   #size { width: 60px; }
 }
 /* the Live switch in the top bar */
@@ -642,10 +641,71 @@ body[data-board="black"] #asgChip { background: #4a3a14; color: #ffe7a6; }
 .card.compact:hover { border-color: var(--accent); }
 .card.compact .card-head { gap: 10px; }
 .card.compact .render.mini { flex: 1; min-width: 0; padding: 0; min-height: 0; font-size: 13px; color: var(--text);
-  max-height: 2.2em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  max-height: 3.2em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } /* room for a fraction */
 .card.compact .render.mini .katex-display { margin: 0; text-align: left; }
 .card.compact .render.mini .katex-display > .katex { text-align: left; }
 .card.compact .render.mini img.fig { display: none; }
 .card.compact .mark { color: var(--dim); font-size: 13px; }
 .card.compact .mark.ok { color: var(--ok); font-weight: 700; }
 .card-head .fold { padding: 0 6px; font-size: 11px; line-height: 16px; margin-left: 4px; }
+
+/* Fold all / Open all; a folded card that needs a look keeps an amber mark */
+#foldAll, #openAll { padding: 1px 8px; font-size: 12px; }
+.card.compact .mark.warn { color: #b26a00; font-weight: 700; }
+
+/* ---- the menu line (7 Oct 2026): Lecture, Insert, Pages, View, AI, Settings; cost and Panel at the right */
+#toolbar .mbtn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid transparent; background: none; border-radius: 7px; }
+#toolbar .mbtn:hover { background: var(--btn-hover); border-color: var(--line); }
+#toolbar .caret { font-size: 10px; color: var(--dim); }
+#toolbar .bar-spacer { flex: 1; min-width: 6px; }
+#toolbar #toolCost { padding: 0 8px; }
+#toolbar #panelToggle.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+#toolbar #sendBtn.live { background: #c62828; color: #fff; border-color: #c62828; font-weight: 600; }
+#legacyTools { display: none !important; }
+.tmenu { position: absolute; left: 0; top: 110%; z-index: 20; display: flex; flex-direction: column; gap: 2px; min-width: 230px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); white-space: nowrap; }
+.tmenu[hidden] { display: none; }
+.tmenu > button { text-align: left; border-color: transparent; background: none; padding: 6px 10px; }
+.tmenu > button:hover { background: var(--btn-hover); }
+.tmenu > label { padding: 6px 10px; display: flex; align-items: center; gap: 8px; border-radius: 6px; }
+.tmenu > label:hover { background: var(--btn-hover); }
+.tmenu hr, #viewMenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; width: auto; }
+#viewMenu > button { display: block; width: 100%; text-align: left; border-color: transparent; background: none; padding: 6px 8px; }
+#viewMenu > button:hover { background: var(--btn-hover); }
+#figMenu.tmenu { flex-direction: column; }
+
+/* the floating tool bar outside full screen: it sits over the page's left margin */
+body.fs-tools:not(.fs) #boardWrap { padding-left: 62px; }
+
+/* Use / Write over an HTML pane: near its top edge or over it, in Select mode, while it is in use; always on touch screens */
+.pane-bar { opacity: 0; pointer-events: none; transition: opacity .15s; }
+.pane-bar.near, body[data-board-tool="lasso"] .pane-bar, body.html-interact .pane-bar { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .pane-bar { opacity: 1; pointer-events: auto; } }
+
+/* the panel: ⋯ for next / fold all / open all / order; each card: ✓ Confirm, and ⋯ for the rest */
+#cardBar .cardmore { margin-left: auto; }
+#cardMoreBtn, .more-btn { padding: 1px 10px; }
+#cardMore { left: auto; right: 0; }
+.card .actions { position: relative; }
+.card .more-acts { display: none; position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 15; flex-direction: column; gap: 2px; min-width: 210px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); }
+.card .more-acts.open { display: flex; }
+.card .more-acts button { text-align: left; border-color: transparent; background: none; padding: 5px 9px; white-space: nowrap; }
+.card .more-acts button:hover { background: var(--btn-hover); }
+.card-edit { display: none; }
+.card-edit.open { display: grid; gap: 6px; }
+.card-comment { font-size: 12px; color: var(--dim); }
+
+/* the Lecture menu: saving and exporting this board */
+#sendMenu .lec-files { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+#sendMenu .lec-files strong { flex-basis: 100%; color: var(--dim); font-weight: 600; }
+
+/* the tool bar outside full screen: under the menu line, compact buttons; on narrow screens the panel
+   below the page leaves room for it too */
+body.fs-tools:not(.fs) #fsBar { top: 54px; transform: none; gap: 2px; padding: 5px; max-height: calc(100vh - 64px); overflow-y: auto; }
+body.fs-tools:not(.fs) #fsBar button { width: 36px; height: 34px; font-size: 16px; }
+body.fs-tools:not(.fs) #fsBar button.fs-close { height: 22px; font-size: 12px; }
+@media (max-width: 800px) { body.fs-tools:not(.fs) #panel { padding-left: 56px; } }
+/* items keep their size, so a full bar switches to symbols (.compact) instead of squeezing one */
+#toolbar > * { flex-shrink: 0; }
+#toolbar > .bar-spacer { flex-shrink: 1; }
