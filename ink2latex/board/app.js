@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-08.0734';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0734';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0734';
-import { initSend } from './send.js?v=2026-10-08.0734';
-import { initStudent } from './student.js?v=2026-10-08.0734';
-import { initAssign } from './assign.js?v=2026-10-08.0734';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0734';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0734';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0734';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0734';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-08.0739';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0739';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0739';
+import { initSend } from './send.js?v=2026-10-08.0739';
+import { initStudent } from './student.js?v=2026-10-08.0739';
+import { initAssign } from './assign.js?v=2026-10-08.0739';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0739';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0739';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0739';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0739';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -854,7 +854,21 @@ function bucketFill(px, py) {
   const poly = edge.length > 6 ? [...simplify(edge.slice(0, half + 1), 0.8).slice(0, -1), ...simplify(edge.slice(half), 0.8)] : edge;
   if (poly.length < 3) { toast('That area is too small to fill'); return; }
   const r1 = v => Math.round(v * 10) / 10;
-  board.addStroke({ size: 1, color: board.color, pen: false, fill: true, alpha: 0.35, pts: poly.map(([x, y]) => [r1((x + 0.5) / k), r1((y + 0.5) / k), 0.5]) });
+  const outline = poly.map(([x, y]) => [r1((x + 0.5) / k), r1((y + 0.5) / k)]);
+  // its frame: the strokes that lie mostly along the edge of the area (writing inside it is not part of it)
+  const ob = outline.reduce((b, [x, y]) => ({ x0: Math.min(b.x0, x), y0: Math.min(b.y0, y), x1: Math.max(b.x1, x), y1: Math.max(b.y1, y) }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+  const segD = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
+  const nearEdge = (p, tol) => outline.some((a, i) => segD(p, a, outline[(i + 1) % outline.length]) < tol);
+  const frame = page.strokes.filter(s => {
+    if (s.fill) return false;
+    const tol = GAP / 2 + s.size / 2 + 4, sb = strokeBox(s);
+    if (sb.x1 < ob.x0 - tol || sb.x0 > ob.x1 + tol || sb.y1 < ob.y0 - tol || sb.y0 > ob.y1 + tol) return false;
+    const step = Math.max(1, Math.floor(s.pts.length / 40)); // at most ~40 points per stroke are checked
+    let near = 0, n = 0;
+    for (let i = 0; i < s.pts.length; i += step) { n++; if (nearEdge(s.pts[i], tol)) near++; }
+    return near >= 0.4 * n;
+  }).map(s => s.id);
+  board.addStroke({ size: 1, color: board.color, pen: false, fill: true, alpha: 0.35, frame, pts: outline.map(([x, y]) => [x, y, 0.5]) });
 }
 // with the bucket on, a tap on the page fills instead of writing
 $('#boardWrap').addEventListener('pointerdown', e => {
@@ -1231,7 +1245,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0734');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0739');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2306,7 +2320,12 @@ board.onHover = p => {
 // Select tool, like grouping in PowerPoint: pressing on a region selects all of it (a group with
 // all its pieces) and a drag moves it; clicking again on a piece of the selected group selects
 // just that piece, which can then be moved on its own and stays in the group.
-board.pickAt = p => regionAt(p)?.b.strokeIds.slice() || null;
+board.pickAt = p => regionAt(p)?.b.strokeIds.slice() || fillAt(p) || null;
+// the topmost paint-bucket fill under p (with its frame, through withFills when selected)
+function fillAt(p) {
+  const f = [...curPage().strokes].reverse().find(s => s.fill && insidePolygon(p, s.pts));
+  return f ? [f.id] : null;
+}
 board.pickPartAt = p => regionAt(p)?.part.strokes.map(s => s.id) || null; // Alt + press
 board.onTap = (p, fresh) => {
   if (badgeDrag) {
@@ -2809,7 +2828,7 @@ function serialize(withPhotos) {
     app: 'ink2latex', version: 2, coords: 'page', orientation: settings.orientation, saved: new Date().toISOString(),
     pages: state.pages.map(p => ({
       uid: p.uid,
-      strokes: p.strokes.map(s => ({ id: s.id, size: s.size, color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}), ...(s.fill ? { fill: true } : {}), pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
+      strokes: p.strokes.map(s => ({ id: s.id, size: s.size, color: s.color, pen: s.pen, shape: s.shape, ...(s.alpha ? { alpha: s.alpha } : {}), ...(s.dash ? { dash: true } : {}), ...(s.fill ? { fill: true, frame: s.frame || [] } : {}), pts: s.pts.map(([x, y, pr]) => [r1(x), r1(y), Math.round(pr * 100) / 100]) })),
       blocks: p.blocks.map(b => ({ id: b.id, strokeIds: b.strokeIds, sig: b.sig, status: b.status === 'busy' ? 'stale' : b.status, model: b.model, result: b.result, edit: b.edit, confirmed: b.confirmed, figure: b.figure, ms: b.ms, comment: b.comment, suggest: b.suggest, orig: b.orig || null, agreement: b.agreement || null, pageAgree: b.pageAgree ?? null, pieces: isGroup(b) ? piecesOf(b) : null, answer: b.answer && b.answer.status !== 'busy' ? b.answer : null })),
       interp: p.interp && !p.interp.error ? p.interp : null,
       texts: p.texts || [],

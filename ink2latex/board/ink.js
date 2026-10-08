@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-08.0734';
+import { recognize } from './shapes.js?v=2026-10-08.0739';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -111,7 +111,7 @@ function segDist(p, a, b) {
   return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
 }
 
-function insidePolygon(p, poly) {
+export function insidePolygon(p, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i], [xj, yj] = poly[j];
@@ -522,7 +522,8 @@ export class Board {
         return inside >= 0.6 * s.pts.length;
       });
       if (hit.length) {
-        this.sel = { ids: new Set(hit.map(s => s.id)), box: unionBox(hit.map(strokeBox)) };
+        const ids = this.withFills(hit.map(s => s.id));
+        this.sel = { ids, box: unionBox(this.page.strokes.filter(s => ids.has(s.id)).map(strokeBox)) };
         this.onSelect(this.sel);
       }
     } else if (a.eraser) {
@@ -571,8 +572,18 @@ export class Board {
     return null;
   }
 
-  selectIds(ids) {
+  // a paint-bucket fill and the strokes that frame it are selected together
+  withFills(ids) {
     const set = new Set(ids);
+    for (const s of this.page.strokes) {
+      if (!s.fill || !s.frame?.length) continue;
+      if (set.has(s.id) || s.frame.some(id => set.has(id))) { set.add(s.id); for (const id of s.frame) set.add(id); }
+    }
+    return set;
+  }
+
+  selectIds(ids) {
+    const set = this.withFills(ids);
     const st = this.page.strokes.filter(s => set.has(s.id));
     if (!st.length) return;
     this.sel = { ids: set, box: unionBox(st.map(strokeBox)) };
