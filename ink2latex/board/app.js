@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-08.0752';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0752';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0752';
-import { initSend } from './send.js?v=2026-10-08.0752';
-import { initStudent } from './student.js?v=2026-10-08.0752';
-import { initAssign } from './assign.js?v=2026-10-08.0752';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0752';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0752';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0752';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0752';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-08.0837';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0837';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0837';
+import { initSend } from './send.js?v=2026-10-08.0837';
+import { initStudent } from './student.js?v=2026-10-08.0837';
+import { initAssign } from './assign.js?v=2026-10-08.0837';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0837';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0837';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0837';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0837';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -131,8 +131,15 @@ bgCanvas.id = 'imageLayer';
 $('#board').before(bgCanvas);
 const updateImageLayer = imageLayer(bgCanvas);
 // HTML panes: between the slide and the ink (lecturer: may run with full access: it is their own file)
-const panes = paneLayer($('#sheet'), { sandbox: new URLSearchParams(location.search).has('join') || settings.studentLecture ? 'allow-scripts' : 'allow-scripts allow-same-origin allow-forms allow-popups', before: $('#board') });
+const panes = paneLayer($('#sheet'), {
+  sandbox: new URLSearchParams(location.search).has('join') || settings.studentLecture ? 'allow-scripts' : 'allow-scripts allow-same-origin allow-forms allow-popups',
+  before: $('#board'),
+  // a plugin's values (graph viewer: equations, sliders, view) are kept with its pane: saved and sent
+  onState: (p, st) => { p.state = st; saveSoon(); },
+  theme: () => (settings.board === 'black' ? 'dark' : 'light'),
+});
 let htmlInteract = false;
+let nearPane = null, nearHide = 0; // the HTML pane whose frame and buttons show (pointer near its edge)
 board.underlay = page => {
   const hasPanes = !!page.panes?.length;
   document.body.classList.toggle('has-panes', hasPanes);
@@ -270,7 +277,7 @@ function renderFigHandles() {
   const page = curPage(), s = board.s;
   const imgs = (page.images || []).filter(i => !i.shot && !i.lock), pns = page.panes || [];
   if (board.tool !== 'lasso' || !(imgs.length + pns.length)) { layer.innerHTML = ''; return; }
-  const box = (o, kind, inner) => `<div class="fig-box${o.bg ? ' bg' : ''}${kind === 'pane' ? ' pane' : ''}" data-id="${o.id}" data-kind="${kind}" style="left:${o.x * s}px;top:${o.y * s}px;width:${o.w * s}px;height:${o.h * s}px">${inner}</div>`;
+  const box = (o, kind, inner) => `<div class="fig-box${o.bg ? ' bg' : ''}${kind === 'pane' ? ' pane' : ''}${kind === 'pane' && o.id === nearPane ? ' near' : ''}" data-id="${o.id}" data-kind="${kind}" style="left:${o.x * s}px;top:${o.y * s}px;width:${o.w * s}px;height:${o.h * s}px">${inner}</div>`;
   layer.innerHTML = imgs.map(im => box(im, 'img', `
     ${im.bg ? '' : '<button class="fig-h move" data-h="move" title="Drag to move the figure">✥</button><button class="fig-h size" data-h="size" title="Drag to resize">◢</button>'}
     <button class="fig-h del" data-h="del" title="${im.bg ? 'Remove the slide from this page' : 'Delete the figure'}">✕</button>`)).join('')
@@ -278,7 +285,7 @@ function renderFigHandles() {
     <button class="fig-h move" data-h="move" title="Drag to move the HTML">✥</button>
     <button class="fig-h mode${p.mode === 'snapshot' ? ' snap' : ''}" data-h="mode" title="What students get. Click to switch: their own copy of the HTML to use, or a picture of yours, taken whenever you write on it">${p.mode === 'snapshot' ? '📷 students: snapshot' : '👥 students: own copy'}</button>
     <button class="fig-h size" data-h="size" title="Drag to resize">◢</button>
-    <button class="fig-h border" data-h="border" title="Border: ${p.border === 'none' ? 'transparent (click: visible)' : 'visible (click: transparent)'}. It always shows near the top-left corner and in Select mode.">${p.border === 'none' ? '▢' : '■'}</button>
+    <button class="fig-h border" data-h="border" title="Border for students: ${p.border === 'none' ? 'transparent (click: visible)' : 'visible (click: transparent)'}. On your board it shows only when the pointer is near the pane.">${p.border === 'none' ? '▢' : '■'}</button>
     <button class="fig-h del" data-h="del" title="Delete the HTML">✕</button>`)).join('');
 }
 document.addEventListener('pointerdown', e => {
@@ -319,13 +326,25 @@ document.addEventListener('pointerdown', e => {
 }, true);
 {
   const menu = $('#figMenu');
-  $('#figBtn').addEventListener('click', e => { e.stopPropagation(); menu.hidden = !menu.hidden; keepOnScreen(menu); });
+  $('#figBtn').addEventListener('click', e => { e.stopPropagation(); menu.hidden = !menu.hidden; $('#pluginList').hidden = true; keepOnScreen(menu); });
+  async function showPluginList() {
+    const list = $('#pluginList');
+    if (!list.hidden) { list.hidden = true; return; }
+    const all = await plugins();
+    list.innerHTML = all.length
+      ? all.map(p => `<button data-plugin="${esc(p.id)}" title="${esc(p.description || '')}">${esc(p.icon || '🧩')} ${esc(p.name)}</button>`).join('')
+      : '<span class="dim">No plugins found</span>';
+    list.hidden = false;
+    keepOnScreen(menu);
+  }
   menu.addEventListener('click', e => {
     e.stopPropagation();
-    const b = e.target.closest('[data-fig]');
+    const b = e.target.closest('[data-fig], [data-plugin]');
     if (!b) return;
     menu.hidden = true;
     if (b.dataset.fig === 'clear') { openClearDialog(); return; }
+    if (b.dataset.fig === 'plugins') { menu.hidden = false; showPluginList(); return; }
+    if (b.dataset.plugin) { insertPlugin(b.dataset.plugin); return; }
     $({ slides: '#pdfInput', figure: '#figInput', html: '#htmlInput', photo: '#photoInput' }[b.dataset.fig]).click();
   });
   document.addEventListener('click', () => { menu.hidden = true; });
@@ -438,20 +457,52 @@ function clearPages({ images, writing, all }) {
 // move, resize, border, delete, and what students get: their own copy to use (sandboxed in their
 // app), or a snapshot of this one, taken whenever you write on the page (while sending).
 const HTML_MAX = 2 * 1024 * 1024;
-async function insertHtml(file) {
-  const text = await file.text();
-  if (text.length > HTML_MAX) { toast('This HTML is larger than 2 MB: only lightweight, self-contained HTML can be used.'); return; }
+async function insertHtml(file) { return insertHtmlText(await file.text(), file.name); }
+// extra: { plugin, state } for plugins; near: a box on the page to put it beside (else the middle)
+async function insertHtmlText(text, name, extra = {}, near = null) {
+  if (text.length > HTML_MAX) { toast('This HTML is larger than 2 MB: only lightweight, self-contained HTML can be used.'); return null; }
   if (/<script[^>]+src=["'](?!https?:|data:)/i.test(text) || /<link[^>]+href=["'](?!https?:|data:|#)[^"']+\.css/i.test(text)) {
     toast('Note: this HTML refers to other files next to it; only what is inside the one file (or on the web) will work.');
   }
   const url = send ? await send.uploadText(text).catch(() => null) : null;
   const W = board.pageW, H = board.pageH, w = Math.round(W * 0.6), h = Math.round(Math.min(H * 0.6, w * 0.62));
-  const p = { id: newPaneId(), name: file.name, x: Math.round((W - w) / 2), y: Math.round(H * 0.2), w, h, border: 'visible', mode: 'own' };
+  let x = Math.round((W - w) / 2), y = Math.round(H * 0.2);
+  if (near) { // beside the region (right of it if there is room, else below it), kept on the page
+    x = near.x1 + 40 + w <= W ? near.x1 + 40 : Math.max(0, Math.min(W - w, near.x0));
+    y = near.x1 + 40 + w <= W ? Math.max(0, Math.min(H - h, near.y0 - 20)) : Math.max(0, Math.min(H - h, near.y1 + 30));
+    x = Math.round(x); y = Math.round(y);
+  }
+  const p = { id: newPaneId(), name, x, y, w, h, border: 'visible', mode: 'own', ...extra };
   if (url) p.src = url; else p.html = text;
   (curPage().panes ||= []).push(p);
   $('#hint').hidden = true;
   board.request(); saveSoon(); renderFigHandles();
-  toast(`${file.name} added. 🖱 Interact (or I) to use it; Select (S) to move or resize it and choose what students get.`);
+  toast(`${name} added. Use (or I) to work with it; Select (S) to move or resize it and choose what students get.`);
+  return p;
+}
+
+// ---------------------------------------------------------------------------- plugins
+// public/plugins/: DTUwrite's own HTML (plugins.json lists them). Inserted like any HTML, with
+// p.plugin = its id, and its state kept with the pane.
+let pluginList = null;
+const plugins = () => (pluginList ||= fetch('plugins/plugins.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : [])).catch(() => []));
+async function insertPlugin(id, state = null, near = null) {
+  const pl = (await plugins()).find(q => q.id === id);
+  if (!pl) { toast('This plugin could not be found.'); return null; }
+  let text;
+  try { const r = await fetch('plugins/' + pl.file, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); text = await r.text(); }
+  catch { toast(`${pl.name} could not be loaded.`); return null; }
+  return insertHtmlText(text, pl.name, state ? { plugin: pl.id, state } : { plugin: pl.id }, near);
+}
+// ⋯ → 📈 Plot: the graph on this page gets one more curve; without one, a new graph beside the region
+async function plotBlock(b) {
+  const latex = sourceOf(b);
+  if (!latex) return;
+  const page = pageOf(b);
+  const g = (page.panes || []).find(p => p.plugin === 'graph-viewer');
+  if (g && page === curPage() && panes.post(g.id, { type: 'dtuwrite-plot', latex })) { toast('Added to the graph on this page'); return; }
+  if (page !== curPage()) return;
+  await insertPlugin('graph-viewer', { curves: [latex] }, blockBox(b));
 }
 $('#htmlBtn').addEventListener('click', () => setInteract(!htmlInteract));
 // the switch where the HTML is: a small button just above each pane's top-left corner (outside it,
@@ -476,27 +527,49 @@ function renderPaneChips(page) {
         board.request(); saveSoon();
         return;
       }
-      setInteract(!htmlInteract);
+      if (b.dataset.m) setInteract(b.dataset.m === 'use');
     });
   }
   const s = board.s;
-  layer.innerHTML = (page.panes || []).map(p => `<div class="pane-bar" data-id="${p.id}" style="left:${p.x * s}px;top:${p.y * s >= 34 ? p.y * s - 32 : p.y * s + 4}px">
-    <button class="pane-chip${htmlInteract ? ' on' : ''}" title="${htmlInteract ? 'Back to writing on the page (or pick a pen tool)' : 'Use the HTML: click, drag, type in it (I)'}">${htmlInteract ? '✎ Write' : '🖱 Use'}</button>
+  const html = (page.panes || []).map(p => `<div class="pane-bar${p.id === nearPane ? ' near' : ''}" data-id="${p.id}" style="left:${p.x * s}px;top:${p.y * s >= 30 ? p.y * s - 27 : p.y * s + 4}px">
+    <span class="pane-mode"><button class="pm${htmlInteract ? '' : ' on'}" data-m="write" title="Write on the page, over the HTML">✎ Write</button><button class="pm${htmlInteract ? ' on' : ''}" data-m="use" title="Use the HTML: click, drag, type in it (I)">🖱 Use</button></span>
     <button class="pane-z" data-z="out" title="Smaller content in this HTML">−</button>
     <button class="pane-z pct" data-z="reset" title="Content size of this HTML; click for 100 %">${Math.round(paneZoom(p) * 100)} %</button>
     <button class="pane-z" data-z="in" title="Larger content in this HTML">＋</button></div>`).join('');
+  if (layer._html !== html) { layer._html = html; layer.innerHTML = html; }
 }
-// a border shows when the pointer comes near a pane's top-left corner (borders can be transparent)
+// A pane's frame, Write | Use, content zoom and Select handles show only while the pointer (or a
+// hovering pen) is near its edge: within a band around the outline, wider once shown, hidden 0.7 s after
+// leaving it, so they hold still while you reach for them.
+function setNearPane(id) {
+  if (id) {
+    clearTimeout(nearHide); nearHide = 0;
+    if (nearPane !== id) { nearPane = id; applyNearPane(); }
+    return;
+  }
+  if (nearPane && !nearHide) nearHide = setTimeout(() => { nearHide = 0; nearPane = null; applyNearPane(); }, 700);
+}
+function applyNearPane() {
+  panes.peek(nearPane);
+  document.querySelectorAll('#paneChips .pane-bar, #figLayer .fig-box.pane').forEach(el => el.classList.toggle('near', el.dataset.id === nearPane));
+}
 $('#boardWrap').addEventListener('pointermove', e => {
   const pns = curPage().panes;
-  if (!pns?.length) return;
-  const r = $('#sheet').getBoundingClientRect(), s = board.s, x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s, near = 48 / s;
-  const p = pns.find(q => Math.abs(x - q.x) < near && Math.abs(y - q.y) < near);
-  panes.peek(p ? p.id : null);
-  // its Use / Write bar: shown over the pane and in a band above it
-  const over = pns.find(q => x > q.x - near / 2 && x < q.x + q.w + near / 2 && y > q.y - 2 * near && y < q.y + q.h);
-  document.querySelectorAll('#paneChips .pane-bar').forEach(el => el.classList.toggle('near', el.dataset.id === over?.id));
+  if (!pns?.length) { if (nearPane) setNearPane(null); return; }
+  const own = e.target.closest?.('#paneChips .pane-bar, #figLayer .fig-box.pane');
+  if (own) { setNearPane(own.dataset.id); return; } // on its own buttons
+  const r = $('#sheet').getBoundingClientRect(), s = board.s, x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s;
+  const band = (nearPane ? 64 : 40) / s;
+  const dist = q => { // to the pane's outline, in page units (outside or inside)
+    const dx = Math.max(q.x - x, 0, x - (q.x + q.w)), dy = Math.max(q.y - y, 0, y - (q.y + q.h));
+    return dx || dy ? Math.hypot(dx, dy) : Math.min(x - q.x, q.x + q.w - x, y - q.y, q.y + q.h - y);
+  };
+  let best = null, bd = Infinity;
+  for (const q of pns) { const d = dist(q) - (q.id === nearPane ? 0 : 1e-6); if (d < bd) { bd = d; best = q; } }
+  setNearPane(best && bd < band ? best.id : null);
 });
+// into the HTML itself (in Use, its own events): the frame and buttons step aside
+$('#boardWrap').addEventListener('pointerover', e => { if (e.target.tagName === 'IFRAME') setNearPane(null); });
 
 // snapshots for students (panes set to "snapshot"): taken when the page has changed, before sending
 let html2canvasP = null;
@@ -747,14 +820,18 @@ applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the ke
     null,
     { icon: '▤', tip: 'Transcription panel (in full screen: a floating box; 📌 docks it at the right)', run: () => togglePanelAnywhere(), on: () => (document.body.classList.contains('fs') ? fsPanelMode() !== 'off' : !!settings.panel) },
   ],
-  onChange: () => applyFsPanel(),
+  onChange: on => { if (on) settings.fsPanel = 'off'; applyFsPanel(); },
 });
 // ---- the panel in full screen: off, a floating box you can drag by its head, or docked at the right
-// until chosen in full screen, the panel there follows the normal one: shown → floating
-const fsPanelMode = () => settings.fsPanel || (settings.panel ? 'float' : 'off');
+// it is off when full screen starts; ▤ (or View → Panel) shows it as last used there: floating or docked
+const fsPanelMode = () => settings.fsPanel || 'off';
+function setFsPanel(on) {
+  settings.fsPanel = on ? (settings.fsPanelKind === 'dock' ? 'dock' : 'float') : 'off';
+  saveSettings(); applyFsPanel();
+}
 function togglePanelAnywhere() {
-  if (fullscreen.active()) settings.fsPanel = fsPanelMode() === 'off' ? 'float' : 'off';
-  else { settings.panel = !settings.panel; applyPanel(); }
+  if (fullscreen.active()) { setFsPanel(fsPanelMode() === 'off'); return; }
+  settings.panel = !settings.panel; applyPanel();
   saveSettings(); applyFsPanel();
 }
 function applyFsPanel() {
@@ -764,13 +841,17 @@ function applyFsPanel() {
   const pos = settings.fsPanelPos;
   if (m === 'float' && pos) Object.assign(p.style, { left: Math.min(pos[0], innerWidth - 120) + 'px', top: Math.min(pos[1], innerHeight - 60) + 'px', right: 'auto' });
   else Object.assign(p.style, { left: '', top: '', right: '' });
-  $('#panelPin').textContent = m === 'dock' ? '📌 Float' : '📌 Dock';
+  $('#panelPin').textContent = m === 'dock' ? '📌' : '📌';
+  $('#panelPin').classList.toggle('on', m === 'dock');
+  const shown = document.body.classList.contains('fs') ? m !== 'off' : !!settings.panel;
+  $('#showPanel').checked = shown;
+  $('#panelToggle').classList.toggle('on', shown);
   $('#panelPin').title = m === 'dock' ? 'Let the panel float over the page again' : 'Dock the panel at the right: the page makes room for it';
   try { fullscreen.sync(); } catch { /* not set up yet */ }
   window.dispatchEvent(new Event('resize'));
 }
-$('#panelPin').addEventListener('click', () => { settings.fsPanel = fsPanelMode() === 'dock' ? 'float' : 'dock'; saveSettings(); applyFsPanel(); });
-$('#panelFsClose').addEventListener('click', () => { settings.fsPanel = 'off'; saveSettings(); applyFsPanel(); });
+$('#panelPin').addEventListener('click', () => { settings.fsPanelKind = settings.fsPanel = fsPanelMode() === 'dock' ? 'float' : 'dock'; saveSettings(); applyFsPanel(); });
+$('#panelFsClose').addEventListener('click', () => setFsPanel(false));
 // drag the floating panel by its head
 $('#panelHead').addEventListener('pointerdown', e => {
   if (!document.body.classList.contains('fs-panel-float') || !document.body.classList.contains('fs') || e.target.closest('button, input, select')) return;
@@ -1246,7 +1327,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0752');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0837');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2243,6 +2324,7 @@ function fillCard(el, b, num) {
       ${r && (isMath || questionOf(b)) ? `<button data-act="calc" title="Calculate with math.js, using values from the page (same as writing = ?)">= ?</button>
         <button data-act="solveai" title="Let ${heavyName()} work it out, with steps (same as writing = ?AI)">= ?AI</button>` : ''}
       ${b.answer ? '<button data-act="noans" title="Remove the answer">✕ Answer</button>' : ''}
+      ${isMath ? '<button data-act="plot" title="Plot it with the graph viewer: one more curve in the graph on this page, or a new graph beside it">📈 Plot</button>' : ''}
       ${num > 1 ? `<button data-act="mergeprev" title="Group this region with region ${num - 1}: read as one equation, pieces stay movable">⇡ Group with ${num - 1}</button>` : ''}
       ${canUngroup(b) ? '<button data-act="ungroup" title="Split into its pieces again, each read on its own (Ctrl+Shift+G)">Ungroup</button>' : ''}
       ${r && r.kind === 'figure' ? '<button data-act="straighten" title="Straighten axes and lines, clean arrowheads, smooth curves - on the page itself (undo with Ctrl+Z)">Straighten</button>' : ''}
@@ -2288,6 +2370,7 @@ function cardFor(b) {
     if (act === 'confirm') { b.confirmed = !b.confirmed; if (b.confirmed) openCards.delete(b.id); renderAll(); saveSoon(); }
     if (act === 'rerun') transcribe(b, settings.finalModel === b.model ? settings.liveModel : settings.finalModel);
     if (act === 'latex') copyText(sourceOf(b), 'LaTeX copied');
+    if (act === 'plot') plotBlock(b);
     if (act === 'word') copyText(toMathML(sourceOf(b)), 'MathML copied - paste into Word');
     if (act === 'text') copyText(sourceOf(b), 'Text copied');
     if (act === 'straighten') { board.applyEdits(straightenFigure(strokesOf(b))); renderAll(); }
@@ -3308,6 +3391,7 @@ function applyBoard() {
   document.body.dataset.board = settings.board;
   const th = THEMES[settings.board];
   board.setTheme(th.bg, th.palette);
+  panes.broadcast({ type: 'dtuwrite-theme', theme: settings.board === 'black' ? 'dark' : 'light' });
   textLayer.render(); // 'auto' and palette colours follow the board
   if (typeof applyCursor === 'function' && board.tool) applyCursor();
   $('#boardToggle').textContent = settings.board === 'white' ? 'Blackboard' : 'Whiteboard';
@@ -3356,7 +3440,10 @@ viewMenu.addEventListener('change', e => {
   if (e.target.name === 'view') { settings.view = e.target.value; saveSettings(); renderAll(); }
   if (e.target.id === 'showStudent') { settings.showStudent = e.target.checked; saveSettings(); send?.renderDots(); }
   if (e.target.id === 'showTools') { settings.tools = e.target.checked; saveSettings(); applyTools(); }
-  if (e.target.id === 'showPanel') { settings.panel = e.target.checked; saveSettings(); applyPanel(); }
+  if (e.target.id === 'showPanel') {
+    if (document.body.classList.contains('fs')) { setFsPanel(e.target.checked); return; }
+    settings.panel = e.target.checked; saveSettings(); applyPanel(); applyFsPanel();
+  }
 });
 
 for (const id of ['autoInterp', 'autoAccept', 'autoEval', 'autoMerge', 'readContext', 'lineGroup', 'twoReadings', 'pageCheck', 'oldTriggers']) {
@@ -3591,7 +3678,8 @@ function applyPanel() {
   $('#panelBody').style.setProperty('--panel-zoom', z);
   $('#panelZoomReset').textContent = Math.round(z * 100) + '%';
 }
-$('#panelToggle').addEventListener('click', () => { settings.panel = !settings.panel; saveSettings(); applyPanel(); });
+// Panel in the menu line: in full screen the full-screen panel (floating / docked), as ▤ in the tool bar
+$('#panelToggle').addEventListener('click', () => togglePanelAnywhere());
 
 // text size of the panel on its own: buttons, or Ctrl + wheel over the panel
 function setPanelZoom(z) {

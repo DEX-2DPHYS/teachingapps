@@ -1,0 +1,9 @@
+[
+  {
+    "id": "graph-viewer",
+    "file": "graph-viewer.html",
+    "name": "Graph viewer",
+    "icon": "📈",
+    "description": "Plot equations (y = …, also implicit like x² + y² = r²) with a slider for each parameter, units, zoom and pan"
+  }
+]

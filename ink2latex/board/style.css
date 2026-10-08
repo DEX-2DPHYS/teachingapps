@@ -463,6 +463,8 @@ details textarea {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); white-space: nowrap; }
 #figMenu[hidden] { display: none; }
 #figMenu button { text-align: left; }
+.plugin-list { display: flex; flex-direction: column; gap: 2px; margin: 0 0 2px 18px; padding-left: 6px; border-left: 2px solid var(--line); }
+.plugin-list[hidden] { display: none; }
 /* figure handles (Select tool): move, resize, delete; the image itself lets the lasso through */
 #figLayer { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
 .fig-box { position: absolute; outline: 1.5px dashed rgba(31,95,209,.7); }
@@ -542,7 +544,7 @@ body.html-interact #overlay, body.html-interact #answers, body.html-interact #ty
 .pane-chip { position: absolute; pointer-events: auto; padding: 3px 10px; border-radius: 14px; font: 600 13px system-ui, sans-serif;
   background: rgba(31,95,209,.92); color: #fff; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; }
 .pane-chip.on { background: #2e7d32; }
-body.html-interact .pane-layer iframe { outline: 3px solid rgba(31,95,209,.8) !important; }
+body.html-interact .pane-layer iframe.peek { outline: 3px solid rgba(31,95,209,.8) !important; }
 body.html-interact #paneChips { pointer-events: none; }
 
 .pane-bar { position: absolute; display: flex; gap: 3px; align-items: center; pointer-events: auto; }
@@ -577,9 +579,9 @@ body[data-board="black"] #asgChip { background: #4a3a14; color: #ffe7a6; }
 #asgBtn .asg-n { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; border-radius: 8px; background: #c62828; color: #fff; font-size: 11px; line-height: 16px; text-align: center; padding: 0 3px; }
 
 /* the About box (opened by the wordmark) */
-/* the DTUwrite wordmark: "DT" in ink, "Uwrite" in DTU red; top left of the tool bar, opens About */
+/* the DTUwrite wordmark: "DT" in ink (lighter), "Uwrite" in DTU red (bold); top left of the tool bar, opens About */
 .wordmark { font: 800 22px/1 "Segoe UI", system-ui, sans-serif; letter-spacing: -0.02em; white-space: nowrap; }
-.wordmark .wm-dt { color: #111; }
+.wordmark .wm-dt { color: #111; font-weight: 500; }
 .wordmark .wm-u { color: #990000; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .wordmark .wm-dt { color: #f2f2f2; } :root:not([data-theme="light"]) .wordmark .wm-u { color: #ff5a5a; } }
 #aboutBtn { padding: 2px 8px; border-color: transparent; background: transparent; line-height: 1; }
@@ -677,10 +679,20 @@ body[data-board="black"] #asgChip { background: #4a3a14; color: #ffe7a6; }
 /* the floating tool bar outside full screen: it sits over the page's left margin */
 body.fs-tools:not(.fs) #boardWrap { padding-left: 50px; }
 
-/* Use / Write over an HTML pane: near its top edge or over it, in Select mode, while it is in use; always on touch screens */
+/* an HTML pane's frame, Write | Use, content zoom and Select handles: only near its edge (always on touch screens) */
 .pane-bar { opacity: 0; pointer-events: none; transition: opacity .15s; }
-.pane-bar.near, body[data-board-tool="lasso"] .pane-bar, body.html-interact .pane-bar { opacity: 1; pointer-events: auto; }
-@media (hover: none) { .pane-bar { opacity: 1; pointer-events: auto; } }
+.pane-bar.near { opacity: 1; pointer-events: auto; }
+.pane-layer iframe.bordered:not(.peek) { outline-color: transparent !important; }
+.fig-box.pane { transition: outline-color .15s; }
+.fig-box.pane:not(.near) { outline-color: transparent; }
+.fig-box.pane .fig-h { transition: opacity .15s; }
+.fig-box.pane:not(.near) .fig-h { opacity: 0; pointer-events: none; }
+@media (hover: none) { .pane-bar, .fig-box.pane .fig-h { opacity: 1 !important; pointer-events: auto !important; } }
+.pane-mode { display: inline-flex; border-radius: 11px; overflow: hidden; border: 1px solid rgba(0,0,0,.18); box-shadow: 0 1px 5px rgba(0,0,0,.22); }
+.pane-mode .pm { padding: 2px 9px; font: 600 12px system-ui, sans-serif; border: 0; border-radius: 0; background: rgba(255,255,255,.97); color: #444; cursor: pointer; }
+.pane-mode .pm + .pm { border-left: 1px solid rgba(0,0,0,.15); }
+.pane-mode .pm.on { background: #1f5fd1; color: #fff; }
+.pane-bar .pane-z { padding: 1px 7px; font-size: 12px; }
 
 /* the panel: ⋯ for next / fold all / open all / order; each card: ✓ Confirm, and ⋯ for the rest */
 #cardBar .cardmore { margin-left: auto; }
@@ -715,7 +727,16 @@ body.fs-tools:not(.fs) #fsBar button.fs-close { height: 22px; font-size: 12px; }
 #toolbar > .bar-spacer { flex-shrink: 1; }
 
 /* the panel in full screen: floating (drag it by its head) or docked at the right (📌) */
-#panelPin, #panelFsClose { display: none; padding: 1px 8px; font-size: 12px; margin-left: 6px; }
+#panelPin, #panelFsClose { display: none; padding: 0 6px; font-size: 12px; margin-left: 4px; }
+#panelPin.on { background: var(--btn-hover); }
+body.fs #panelHead { gap: 4px; margin: 0 0 4px; font-size: 13px; flex-wrap: nowrap; }
+body.fs #panelHead strong { font-size: 13px; }
+body.fs #panelHead #cost { font-size: 11px; }
+body.fs #panelZoom { margin-left: auto; }
+body.fs #panelZoom button { padding: 0 5px; font-size: 11px; line-height: 18px; }
+body.fs #panelZoomReset { min-width: 40px; }
+body.fs #cardBar { font-size: 12px; gap: 4px; margin-bottom: 6px; }
+body.fs #cardBar button { padding: 1px 7px; font-size: 12px; }
 body.fs #panelPin, body.fs #panelFsClose { display: inline-block; }
 body.fs.fs-panel-dock #panel.fs-hide, body.fs.fs-panel-dock #panelResizer.fs-hide { display: block !important; }
 body.fs.fs-panel-float #panel.fs-hide { display: block !important; position: fixed; z-index: 240; top: 56px; right: 16px; width: min(380px, 90vw) !important;

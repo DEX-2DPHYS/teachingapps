@@ -8,6 +8,10 @@
 //   Lecturer: sandbox "allow-scripts allow-same-origin" (their own file; needed for snapshots).
 //   Students: sandbox "allow-scripts" only: it runs, but cannot reach the app, the login or notes.
 // The layer is scaled like the page (layout in page units), so the HTML keeps its layout when zooming.
+// Plugins (DTUwrite's own HTML, e.g. the graph viewer) keep their state with the pane (p.plugin, p.state):
+//   plugin → { type: 'dtuwrite-plugin-ready' }          answered with { type: 'dtuwrite-plugin-restore', state }
+//   plugin → { type: 'dtuwrite-plugin-state', state }   given to onState(pane, state) (the board saves it)
+//   layer  → { type: 'dtuwrite-theme', theme }          the board colour ('light' / 'dark')
 
 const CSS = `
 .pane-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
@@ -17,19 +21,36 @@ const CSS = `
 .pane-layer iframe.bordered:not(.peek) { outline-color: rgba(0, 0, 0, .28); }
 `;
 let cssDone = false;
+const STATE_MAX = 60000; // characters of JSON a plugin may keep with its pane
 
 const okSrc = src => typeof src === 'string' && /^https:\/\//.test(src);
 export const newPaneId = () => 'h' + Math.random().toString(36).slice(2, 10);
 export const paneZoom = p => Math.max(0.25, Math.min(4, +p.zoom || 1));
 
 // layer: put into `sheet`, before `before` (an element of the sheet) or at its end
-export function paneLayer(sheet, { sandbox = 'allow-scripts', before = null } = {}) {
+export function paneLayer(sheet, { sandbox = 'allow-scripts', before = null, onState = null, theme = null } = {}) {
   if (!cssDone) { cssDone = true; const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); }
   const layer = document.createElement('div');
   layer.className = 'pane-layer';
   if (before) sheet.insertBefore(layer, before); else sheet.appendChild(layer);
   const frames = new Map(); // pane id -> { el, key }
   const texts = new Map();  // src -> Promise<html text>
+  const current = new Map(); // pane id -> the pane object last given to update()
+  const idOf = win => { for (const [k, f] of frames) if (f.el.contentWindow === win) return k; return null; };
+  window.addEventListener('message', e => {
+    const d = e.data;
+    if (!d || typeof d !== 'object' || typeof d.type !== 'string' || !d.type.startsWith('dtuwrite-plugin-')) return;
+    const id = idOf(e.source), p = id && current.get(id);
+    if (!p) return;
+    if (d.type === 'dtuwrite-plugin-ready') {
+      if (theme) e.source.postMessage({ type: 'dtuwrite-theme', theme: theme() }, '*');
+      e.source.postMessage({ type: 'dtuwrite-plugin-restore', state: p.state || null }, '*');
+    } else if (d.type === 'dtuwrite-plugin-state' && onState) {
+      let json;
+      try { json = JSON.stringify(d.state); } catch { return; }
+      if (json && json.length <= STATE_MAX) onState(p, JSON.parse(json));
+    }
+  });
 
   const textOf = p => {
     if (typeof p.html === 'string') return Promise.resolve(p.html);
@@ -45,6 +66,7 @@ export function paneLayer(sheet, { sandbox = 'allow-scripts', before = null } = 
     const seen = new Set();
     for (const p of panes || []) {
       seen.add(p.id);
+      current.set(p.id, p);
       let f = frames.get(p.id);
       const key = p.src || ('local:' + (p.html?.length || 0));
       if (!f || f.key !== key) {
@@ -64,14 +86,22 @@ export function paneLayer(sheet, { sandbox = 'allow-scripts', before = null } = 
       Object.assign(f.el.style, { left: p.x + 'px', top: p.y + 'px', width: p.w / z + 'px', height: p.h / z + 'px', transform: z === 1 ? '' : `scale(${z})` });
       f.el.classList.toggle('bordered', p.border !== 'none' || borders);
     }
-    for (const [id, f] of frames) if (!seen.has(id)) { f.el.remove(); frames.delete(id); }
+    for (const [id, f] of frames) if (!seen.has(id)) { f.el.remove(); frames.delete(id); current.delete(id); }
   }
   // show the border of one pane for a moment (pointer near its top-left corner); null = none
   function peek(id) { for (const [k, f] of frames) f.el.classList.toggle('peek', k === id); }
-  return { update, peek, frame: id => frames.get(id)?.el || null, layer };
+  // a message to one pane's HTML, or to all of them (e.g. the board colour)
+  const post = (id, msg) => { const w = frames.get(id)?.el.contentWindow; if (w) w.postMessage(msg, '*'); return !!w; };
+  const broadcast = msg => { for (const f of frames.values()) f.el.contentWindow?.postMessage(msg, '*'); };
+  return { update, peek, post, broadcast, frame: id => frames.get(id)?.el || null, layer };
 }
 
 // what students may get: panes they run themselves ("their own copy"), uploaded ones only
 export const publicPanes = panes => (panes || [])
   .filter(p => p.mode === 'own' && okSrc(p.src))
-  .map(({ id, src, x, y, w, h, zoom, border, name }) => ({ id, src, x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), zoom: paneZoom({ zoom }), border: border || 'visible', name: String(name || '').slice(0, 80) }));
+  .map(({ id, src, x, y, w, h, zoom, border, name, plugin, state }) => {
+    const out = { id, src, x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), zoom: paneZoom({ zoom }), border: border || 'visible', name: String(name || '').slice(0, 80) };
+    if (typeof plugin === 'string') out.plugin = plugin.slice(0, 40);
+    if (state && JSON.stringify(state).length <= STATE_MAX) out.state = state; // a plugin's values, as the lecturer left them
+    return out;
+  });

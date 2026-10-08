@@ -1,0 +1,1543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graph viewer</title>
+<!-- DTUwrite plugin (Insert → Plugins, or a card's ⋯ → Plot), or open it on its own in a browser.
+     One self-contained file; KaTeX (the typeset equation) comes from the web, and without it the
+     equation is shown in plain text. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" onload="window.graphViewer && window.graphViewer.katexReady()"></script>
+<style>
+:root { --bg: #ffffff; --panel: #f5f6f8; --ink: #1b1b1b; --muted: #5f6672; --line: #d5d9df; --grid: #eaecef; --axis: #59606b;
+  --accent: #1f5fd1; --warn: #b86a00; --warnbg: #ffefc2; --field: #ffffff; --err: #c62828; }
+body[data-theme=dark] { --bg: #1f2b26; --panel: #253430; --ink: #f2f1e8; --muted: #a8b4ae; --line: #3c4e46; --grid: #2b3a34; --axis: #9fb0a8;
+  --accent: #7fb2ff; --warn: #ffcf66; --warnbg: #4d411c; --field: #18221e; --err: #ff8a80; }
+/* large, readable type that scales with the size of the pane (a slide, a board pane or a full window) */
+html { font-size: clamp(16px, min(2.15vw, 3.7vh), 30px); }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+button, input { font: inherit; color: inherit; }
+#app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+/* the equations */
+#curves { padding: .3rem .6rem .35rem; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: .15rem; max-height: 38vh; overflow-y: auto; }
+.crow { display: flex; align-items: center; gap: .5rem; min-height: 2.3rem; }
+.crow.hidden .eq { opacity: .4; }
+.dot { width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 0; padding: 0; flex: none; cursor: pointer; box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--line); }
+.crow.hidden .dot { background: transparent !important; box-shadow: inset 0 0 0 3px currentColor; }
+.eq { flex: 1; min-width: 0; font-size: 1.3rem; cursor: text; overflow-x: auto; overflow-y: hidden; white-space: nowrap; padding: .15rem .25rem; border-radius: .3rem; }
+.eq:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.eq .katex { font-size: 1.12em; }
+.eq.plain { font-family: "Cambria Math", "Times New Roman", serif; }
+.eqin { flex: 1; min-width: 0; font: 1rem ui-monospace, Consolas, monospace; padding: .3rem .45rem; border: 2px solid var(--accent); border-radius: .35rem; background: var(--field); outline: none; }
+.err, .unote { font-size: .75rem; margin: -.1rem 0 .15rem 1.7rem; }
+.err { color: var(--err); }
+.unote { color: var(--warn); }
+.unote.dim { color: var(--muted); }
+.ibtn { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 1rem; padding: .1rem .3rem; border-radius: .3rem; flex: none; }
+.ibtn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); color: var(--ink); }
+.addrow { display: flex; }
+.addbtn { border: 1px dashed var(--line); background: none; color: var(--muted); cursor: pointer; border-radius: .35rem; font-size: .8rem; padding: .1rem .6rem; margin-left: 1.65rem; }
+.addbtn:hover { color: var(--ink); border-color: var(--muted); }
+
+/* symbols in the equation: amber = still needs a value; underlined = a slider; dotted = a constant */
+.gsym { cursor: pointer; border-radius: .18em; transition: background .12s; }
+.gsym.unset { background: var(--warnbg); box-shadow: inset 0 -.1em 0 var(--warn); }
+.gsym.param { box-shadow: inset 0 -.08em 0 var(--accent); }
+.gsym.const { box-shadow: inset 0 -.07em 0 var(--muted); }
+.gsym:hover, .gsym.on { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+main { display: grid; grid-template-columns: 1fr minmax(11.5rem, 31%); min-height: 0; }
+@media (max-aspect-ratio: 1/1) { main { grid-template-columns: 1fr; grid-template-rows: 1fr minmax(8rem, 38%); } #panel { border-left: 0 !important; border-top: 1px solid var(--line); } }
+
+/* the plot */
+#plotBox { position: relative; min-width: 0; min-height: 0; }
+#plot { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#plot.dragging { cursor: grabbing; }
+.end { position: absolute; width: 4.3em; font-size: .8rem; padding: .05rem .2rem; border: 1px solid transparent; border-radius: .3rem; background: transparent; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+.end:hover { border-color: var(--line); background: var(--field); }
+.end:focus { border-color: var(--accent); background: var(--field); outline: none; }
+.end.bad, input.bad { border-color: var(--err) !important; }
+#xmin { text-align: left; } #xmax { text-align: right; } #ymin, #ymax { text-align: right; }
+#tools { position: absolute; display: flex; flex-direction: column; gap: .2rem; }
+#tools button { width: 1.9rem; height: 1.9rem; border-radius: .4rem; border: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 85%, transparent); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; color: var(--ink); }
+#tools button:hover { border-color: var(--muted); }
+
+/* the control panel */
+#panel { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: .35rem .65rem .6rem; }
+#panel h2 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: .35rem 0 .2rem; font-weight: 600; }
+.hint { font-size: .75rem; color: var(--warn); margin: .2rem 0 .3rem; }
+.prow { padding: .25rem 0 .35rem; border-bottom: 1px solid var(--line); }
+.prow:last-child { border-bottom: 0; }
+.ptop { display: flex; align-items: center; gap: .35rem; }
+.pname { font-size: 1.15rem; padding: 0 .15rem; }
+.pname .katex { font-size: 1.05em; }
+.eqs { color: var(--muted); }
+.pval { flex: 1; min-width: 0; width: 3em; font-size: 1rem; font-weight: 600; padding: .05rem .25rem; border: 1px solid var(--line); border-radius: .3rem; background: var(--field); font-variant-numeric: tabular-nums; }
+.punit { font-size: .75rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.pval:focus, .pend:focus, #pop input:focus { outline: none; border-color: var(--accent); }
+.play { border: 1px solid var(--line); background: var(--field); border-radius: .3rem; cursor: pointer; width: 1.7rem; height: 1.7rem; padding: 0; font-size: .75rem; flex: none; }
+.play.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.prange { width: 100%; margin: .3rem 0 0; height: 1.6rem; accent-color: var(--accent); cursor: pointer; }
+.pends { display: flex; justify-content: space-between; }
+.pend { width: 5.6em; font-size: .7rem; color: var(--muted); padding: 0 .2rem; border: 1px solid transparent; border-radius: .25rem; background: transparent; }
+.pend:hover { border-color: var(--line); }
+.pend.r { text-align: right; }
+.crow2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0 .35rem; padding: .2rem 0; }
+.crow2 .note { flex-basis: 100%; font-size: .65rem; color: var(--muted); padding-left: .2rem; }
+.empty { color: var(--muted); font-size: .8rem; }
+
+/* the box that asks for a value */
+#pop { position: fixed; z-index: 10; background: var(--bg); border: 1px solid var(--line); border-radius: .5rem; box-shadow: 0 .4rem 1.4rem rgba(0,0,0,.22); padding: .45rem .6rem .55rem; font-size: .85rem; max-width: min(25rem, 94vw); }
+#pop .ph { display: flex; align-items: center; gap: .4rem; font-size: 1.25rem; flex-wrap: wrap; }
+#pop .ph input { width: 6.5em; font-size: 1.1rem; font-weight: 600; padding: .1rem .3rem; border: 2px solid var(--line); border-radius: .35rem; background: var(--field); }
+#pop .ph input.u { width: 4.5em; font-size: .95rem; font-weight: 400; }
+#pop .pr { margin-top: .35rem; display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; color: var(--muted); }
+#pop .pr input { width: 5em; padding: .05rem .25rem; border: 1px solid var(--line); border-radius: .3rem; background: var(--field); }
+#pop .chips { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .4rem; }
+#pop .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 1rem; padding: .05rem .55rem; cursor: pointer; font-size: .75rem; }
+#pop .chip:hover { border-color: var(--accent); }
+#pop .act { margin-top: .45rem; display: flex; gap: .4rem; flex-wrap: wrap; }
+#pop .act button { border: 1px solid var(--line); background: var(--panel); border-radius: .35rem; padding: .1rem .5rem; cursor: pointer; font-size: .8rem; }
+#pop .note { color: var(--muted); font-size: .75rem; margin-top: .25rem; }
+#pop .uerr { color: var(--err); font-size: .75rem; margin-top: .2rem; }
+#pal { position: fixed; z-index: 11; background: var(--bg); border: 1px solid var(--line); border-radius: .5rem; box-shadow: 0 .4rem 1.4rem rgba(0,0,0,.22); padding: .4rem; display: grid; grid-template-columns: repeat(4, 1.6rem); gap: .3rem; }
+#pal button { width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 0; cursor: pointer; }
+#pal button.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
+#pal .hide { grid-column: 1 / -1; width: auto; height: auto; border-radius: .35rem; border: 1px solid var(--line); background: var(--panel); font-size: .75rem; padding: .15rem; color: var(--ink); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="curves"></header>
+  <main>
+    <section id="plotBox">
+      <canvas id="plot"></canvas>
+      <input class="end" id="ymax" title="Top of the vertical axis">
+      <input class="end" id="ymin" title="Bottom of the vertical axis">
+      <input class="end" id="xmin" title="Left end of the horizontal axis">
+      <input class="end" id="xmax" title="Right end of the horizontal axis">
+      <div id="tools">
+        <button data-t="in" title="Zoom in">＋</button>
+        <button data-t="out" title="Zoom out">−</button>
+        <button data-t="fit" title="Fit the vertical axis to the curves (or double-click the graph)">⤢</button>
+        <button data-t="home" title="Back to the start view">⌂</button>
+        <button data-t="theme" title="Light / dark (like the white and the black board)">◐</button>
+      </div>
+    </section>
+    <aside id="panel"></aside>
+  </main>
+</div>
+<div id="pop" hidden></div>
+<div id="pal" hidden></div>
+<script>
+'use strict';
+// ============================================================================ start configuration
+// Edit this block to make a ready-made copy (e.g. one per slide). Equations may be typed as plain text
+// ("y = A sin(k x) + b") or LaTeX ("y = \\frac{A}{1 + (x/x_0)^2}"), also implicit ("x^2 + y^2 = r^2").
+// Values given here count as defined; unit: e.g. 'nm', 'J s', 'm/s^2' ('1' = no unit).
+// Opened on its own, the address can also set it: graph-viewer.html#eq=y%3Dx%5E2&x=-5,5&y=0,25&theme=dark
+const START = {
+  curves: ['y = A \\sin(k x + \\varphi)'],
+  values: { A: { v: 1, min: 0, max: 2 }, k: { v: 1, min: 0, max: 4 }, 'φ': { v: 0, min: -3.14, max: 3.14 } },
+  x: [-10, 10],
+  y: [-2.5, 2.5],
+  theme: 'light',
+};
+
+// the pen colours of DTUwrite (white board / black board), in the order new curves take them
+const PALETTE = {
+  light: { blue: '#1f5fd1', red: '#c62828', green: '#2e7d32', orange: '#e65100', purple: '#6a1b9a', teal: '#00838f', yellow: '#f9a825', auto: '#1b1b1b' },
+  dark: { blue: '#7fb2ff', red: '#ff8a80', green: '#9ae6a0', orange: '#ffb74d', purple: '#ce93d8', teal: '#80deea', yellow: '#fff176', auto: '#f2f1e8' },
+};
+const COLOR_ORDER = ['blue', 'red', 'green', 'orange', 'purple', 'teal', 'yellow', 'auto'];
+const COLOR_NAME = { blue: 'Blue', red: 'Red', green: 'Green', orange: 'Orange', purple: 'Purple', teal: 'Teal', yellow: 'Yellow', auto: 'Ink' };
+
+// constants offered when a symbol has one of these names (never filled in by themselves, except Euler's e)
+const KNOWN = [
+  { n: 'e', v: Math.E, unit: '1', label: "Euler's number" },
+  { n: 'e', v: 1.602176634e-19, unit: 'C', label: 'elementary charge' },
+  { n: 'h', v: 6.62607015e-34, unit: 'J s', label: 'Planck constant' },
+  { n: 'ħ', v: 1.054571817e-34, unit: 'J s', label: 'reduced Planck constant' },
+  { n: 'c', v: 299792458, unit: 'm/s', label: 'speed of light' },
+  { n: 'k_B', v: 1.380649e-23, unit: 'J/K', label: 'Boltzmann constant' },
+  { n: 'k_e', v: 8.9875517923e9, unit: 'N m^2/C^2', label: 'Coulomb constant' },
+  { n: 'm_e', v: 9.1093837015e-31, unit: 'kg', label: 'electron mass' },
+  { n: 'm_p', v: 1.67262192e-27, unit: 'kg', label: 'proton mass' },
+  { n: 'ε_0', v: 8.8541878128e-12, unit: 'F/m', label: 'vacuum permittivity' },
+  { n: 'μ_0', v: 1.25663706212e-6, unit: 'N/A^2', label: 'vacuum permeability' },
+  { n: 'μ_B', v: 9.2740100783e-24, unit: 'J/T', label: 'Bohr magneton' },
+  { n: 'a_0', v: 5.29177210903e-11, unit: 'm', label: 'Bohr radius' },
+  { n: 'g', v: 9.81, unit: 'm/s^2', label: 'gravity at the surface' },
+  { n: 'G', v: 6.6743e-11, unit: 'N m^2/kg^2', label: 'gravitational constant' },
+  { n: 'N_A', v: 6.02214076e23, unit: '1/mol', label: 'Avogadro constant' },
+  { n: 'R', v: 8.314462618, unit: 'J/(mol K)', label: 'gas constant' },
+  { n: 'σ', v: 5.670374419e-8, unit: 'W/(m^2 K^4)', label: 'Stefan–Boltzmann constant' },
+  { n: 'Φ_0', v: 2.067833848e-15, unit: 'Wb', label: 'flux quantum h/2e' },
+];
+
+// ============================================================================ reading an equation
+const GREEK = { alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ',
+  iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', rho: 'ρ', varrho: 'ϱ', sigma: 'σ', tau: 'τ', upsilon: 'υ', phi: 'φ', varphi: 'φ',
+  chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω' };
+const TEX_OF = { ħ: '\\hbar', ℓ: '\\ell', φ: '\\varphi', ε: '\\varepsilon' };
+for (const [w, u] of Object.entries(GREEK)) if (!TEX_OF[u]) TEX_OF[u] = '\\' + w;
+
+function erf(x) { // Abramowitz & Stegun 7.1.26
+  const s = Math.sign(x), a = Math.abs(x), t = 1 / (1 + 0.3275911 * a);
+  return s * (1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-a * a));
+}
+function gamma(x) { // Lanczos
+  if (x < 0.5) return Math.PI / (Math.sin(Math.PI * x) * gamma(1 - x));
+  const g = 7, c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61503916999185, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  x -= 1; let a = c[0]; const t = x + g + 0.5;
+  for (let i = 1; i < 9; i++) a += c[i] / (x + i);
+  return Math.sqrt(2 * Math.PI) * Math.pow(t, x + 0.5) * Math.exp(-t) * a;
+}
+const FN = {
+  sin: Math.sin, cos: Math.cos, tan: Math.tan, cot: x => 1 / Math.tan(x), sec: x => 1 / Math.cos(x), csc: x => 1 / Math.sin(x),
+  arcsin: Math.asin, arccos: Math.acos, arctan: Math.atan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
+  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, coth: x => 1 / Math.tanh(x), arsinh: Math.asinh, arcosh: Math.acosh, artanh: Math.atanh,
+  asinh: Math.asinh, acosh: Math.acosh, atanh: Math.atanh,
+  exp: Math.exp, ln: Math.log, log: Math.log10, lg: Math.log10, sqrt: Math.sqrt, abs: Math.abs, sgn: Math.sign, sign: Math.sign,
+  floor: Math.floor, ceil: Math.ceil, round: Math.round, erf, sinc: x => (x === 0 ? 1 : Math.sin(x) / x),
+};
+const INVERSE = { sin: 'arcsin', cos: 'arccos', tan: 'arctan', sinh: 'arsinh', cosh: 'arcosh', tanh: 'artanh' };
+// letter runs are read as these words where they occur, otherwise one letter = one symbol ("kx" = k·x)
+const WORDS = [...Object.keys(FN), ...Object.keys(GREEK), 'pi', 'hbar', 'ell', 'infty'].sort((a, b) => b.length - a.length);
+
+function tokenize(src) {
+  const latex = /[\\{}]/.test(src);
+  const s = String(src)
+    .replace(/\$/g, '')
+    .replace(/[−–]/g, '-').replace(/[·⋅×∙]/g, '*').replace(/÷/g, '/')
+    .replace(/²/g, '^2').replace(/³/g, '^3')
+    .replace(/√/g, '\\sqrt ').replace(/π/g, '\\pi ').replace(/∞/g, '\\infty ').replace(/ϕ/g, 'φ').replace(/ϵ/g, 'ε')
+    .replace(/\\(left|right)\./g, '')
+    .replace(/\\(left|right|bigl|bigr|Bigl|Bigr|biggl|biggr|bigg|Bigg|big|Big|displaystyle|textstyle)(?![a-zA-Z])/g, '')
+    .replace(/\\(lvert|rvert|vert|mid)(?![a-zA-Z])/g, '|')
+    .replace(/\\(cdot|times|ast)(?![a-zA-Z])/g, '*').replace(/\\div(?![a-zA-Z])/g, '/')
+    .replace(/\\(quad|qquad)(?![a-zA-Z])/g, ' ').replace(/\\[,;:! ]|~/g, ' ')
+    .replace(/\\\{/g, '(').replace(/\\\}/g, ')');
+  const toks = [];
+  let i = 0;
+  const add = (w, pos, end) => { // one word or letter
+    if (FN[w]) toks.push({ t: 'fn', v: w, raw: w, pos, end });
+    else if (w === 'pi') toks.push({ t: 'pi', raw: 'π', pos, end });
+    else if (w === 'infty') toks.push({ t: 'num', v: Infinity, raw: '∞', pos, end });
+    else toks.push({ t: 'id', v: GREEK[w] || { hbar: 'ħ', ell: 'ℓ' }[w] || w, raw: w, pos, end });
+  };
+  const group = () => { // the {…} after \text and friends, as plain text
+    while (s[i] === ' ') i++;
+    if (s[i] !== '{') return s[i++] || '';
+    let d = 0, j = i;
+    for (; j < s.length; j++) { if (s[j] === '{') d++; else if (s[j] === '}' && --d === 0) break; }
+    const g = s.slice(i + 1, j); i = j + 1; return g;
+  };
+  while (i < s.length) {
+    const c = s[i], rest = s.slice(i);
+    if (/\s/.test(c)) { i++; continue; }
+    let m;
+    if ((m = /^(\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(rest))) {
+      toks.push({ t: 'num', v: parseFloat(m[0].replace(',', '.')), raw: m[0], pos: i, end: i + m[0].length }); i += m[0].length; continue;
+    }
+    if (c === '\\') {
+      m = /^\\([a-zA-Z]+)/.exec(rest);
+      if (!m) { i++; continue; }
+      const at = i; i += m[0].length; const w = m[1];
+      if (/^[dtc]?frac$/.test(w)) toks.push({ t: 'frac', raw: '\\frac', pos: at, end: i });
+      else if (w === 'sqrt') toks.push({ t: 'sqrt', raw: '\\sqrt', pos: at, end: i });
+      else if (/^(text|textrm|textit|mathrm|mathit|mathbf|mathsf|operatorname|rm|it)$/.test(w)) {
+        const g = group().replace(/\\([a-zA-Z]+)/g, (q, x) => GREEK[x] || x).replace(/[\s{}\\]/g, '');
+        if (g) toks.push(FN[g] ? { t: 'fn', v: g, raw: g, pos: at, end: i } : { t: 'id', v: g, raw: g, pos: at, end: i });
+      } else add(w, at, i);
+      continue;
+    }
+    if ((m = /^[A-Za-z\u0370-\u03ffħℓ]+/.exec(rest))) {
+      const w = m[0];
+      for (let k = 0; k < w.length;) {
+        const piece = WORDS.find(x => w.startsWith(x, k)) || w[k];
+        add(piece, i + k, i + k + piece.length); k += piece.length;
+      }
+      i += w.length; continue;
+    }
+    if ('+-*/^()[]{}|=,!\'_'.includes(c)) { toks.push({ t: c, raw: c, pos: i, end: i + 1 }); i++; continue; }
+    throw new Error(`"${c}" is not understood`);
+  }
+  // subscripts: k_F, v_{max}, x_0, \log_{10}; plain "x0" is x_0 too
+  const nameOf = t => (t.t === 'id' ? t.v : t.raw);
+  for (let k = 0; k < toks.length; k++) {
+    const a = toks[k], b = toks[k + 1];
+    if (!b) break;
+    if (b.t === '_' && (a.t === 'id' || a.t === 'fn')) {
+      let sub = '', cut = 1;
+      if (toks[k + 2] && toks[k + 2].t === '{') {
+        let d = 0, j = k + 2;
+        for (; j < toks.length; j++) { if (toks[j].t === '{') d++; else if (toks[j].t === '}' && --d === 0) break; }
+        sub = toks.slice(k + 3, j).map(nameOf).join(''); cut = j - k;
+      } else {
+        let j = k + 2;
+        while (toks[j] && ['id', 'num', 'pi'].includes(toks[j].t) && (j === k + 2 || (!latex && toks[j].pos === toks[j - 1].end))) j++;
+        if (latex && j > k + 3) j = k + 3;
+        sub = toks.slice(k + 2, j).map(nameOf).join(''); cut = j - k - 1;
+      }
+      if (!sub) throw new Error('a subscript "_" needs something after it');
+      if (a.t === 'fn') a.base = sub; else a.v += '_' + sub;
+      toks.splice(k + 1, cut);
+      k--; continue;
+    }
+    if (!latex && a.t === 'id' && !a.v.includes('_') && b.t === 'num' && b.pos === a.end && /^\d+$/.test(b.raw)) { a.v += '_' + b.raw; toks.splice(k + 1, 1); }
+  }
+  if (toks.some(t => t.t === '_')) throw new Error('a subscript "_" needs a name before it');
+  return toks;
+}
+
+function parseTokens(toks) {
+  let p = 0, absDepth = 0;
+  const CLOSE = { '(': ')', '{': '}', '[': ']' };
+  const peek = () => toks[p], is = t => toks[p] && toks[p].t === t;
+  const expect = t => { if (!is(t)) throw new Error(p < toks.length ? `"${t}" expected before "${toks[p].raw}"` : `"${t}" is missing at the end`); p++; };
+  const starts = tk => !!tk && (['num', 'id', 'fn', 'pi', 'frac', 'sqrt', '(', '{', '['].includes(tk.t) || (tk.t === '|' && absDepth === 0));
+  function expr() { let a = term(); while (is('+') || is('-')) { const op = toks[p++].t; a = { t: op, a, b: term() }; } return a; }
+  function term() {
+    let a = unary();
+    for (;;) {
+      if (is('*') || is('/')) { const op = toks[p++].t; a = { t: op, a, b: unary() }; }
+      else if (starts(peek())) a = { t: '*', a, b: power(), imp: true };
+      else return a;
+    }
+  }
+  function unary() { if (is('-')) { p++; return { t: 'neg', a: unary() }; } if (is('+')) { p++; return unary(); } return power(); }
+  function power() { const a = postfix(); if (is('^')) { p++; return { t: '^', a, b: exponent() }; } return a; }
+  function exponent() { if (is('-')) { p++; return { t: 'neg', a: exponent() }; } if (is('+')) { p++; return exponent(); } return power(); }
+  function postfix() { let a = primary(); for (;;) { if (is('!')) { p++; a = { t: '!', a }; } else if (is('\'')) p++; else return a; } }
+  function group() { const o = toks[p++].t, keep = absDepth; absDepth = 0; const e = expr(); absDepth = keep; expect(CLOSE[o]); return e; }
+  function arg() { return is('{') || is('(') || is('[') ? group() : postfix(); }
+  function primary() {
+    const tk = peek();
+    if (!tk) throw new Error('the expression stops too early');
+    switch (tk.t) {
+      case 'num': p++; return { t: 'n', v: tk.v, raw: tk.raw };
+      case 'pi': p++; return { t: 'pi' };
+      case 'id': p++; return { t: 's', name: tk.v };
+      case '(': case '{': case '[': return group();
+      case '|': { p++; absDepth++; const e = expr(); absDepth--; expect('|'); return { t: 'f', f: 'abs', a: e }; }
+      case 'frac': { p++; const a = arg(), b = arg(); return { t: '/', a, b }; }
+      case 'sqrt': { p++; let n = null; if (is('[')) { p++; n = expr(); expect(']'); } return { t: 'sqrt', a: arg(), n }; }
+      case 'fn': {
+        p++;
+        let f = tk.v, pw = null;
+        if (is('^')) { p++; pw = exponent(); }
+        if (pw && pw.t === 'neg' && pw.a.t === 'n' && pw.a.v === 1 && INVERSE[f]) { f = INVERSE[f]; pw = null; } // sin^{-1}
+        let a;
+        if (is('(') || is('{') || is('[')) a = group();
+        else { // \sin kx: the product that follows
+          if (!starts(peek())) throw new Error(`${tk.v} needs something to act on`);
+          a = power();
+          while (starts(peek()) && peek().t !== 'fn') a = { t: '*', a, b: power(), imp: true };
+        }
+        let n = { t: 'f', f, a, base: tk.base };
+        if (pw) n = { t: '^', a: n, b: pw };
+        return n;
+      }
+    }
+    throw new Error(`"${tk.raw}" is not expected here`);
+  }
+  const e = expr();
+  if (p < toks.length) throw new Error(`"${toks[p].raw}" is not expected here`);
+  return e;
+}
+const symbolsOf = (...asts) => {
+  const names = [];
+  const walk = n => { if (!n || typeof n !== 'object') return; if (n.t === 's' && !names.includes(n.name)) names.push(n.name); for (const k of ['a', 'b', 'n']) walk(n[k]); };
+  asts.forEach(walk);
+  return names;
+};
+
+// "y = …", "f(x) = …": a curve y(x). Anything else with "=" (x^2 + y^2 = r^2, x = 3, y = x + y^2): an
+// implicit curve, drawn where both sides are equal. A trailing "=", "= ?", "⊜" or "⊜ AI" is ignored.
+function parseEquation(src) {
+  src = String(src).replace(/(=|\\(?:ominus|odot|circ|bigcirc|circledcirc)(?![a-zA-Z])|\(\s*=\s*\))\s*(\?\s*)?(\\text\{\s*A\.?I\.?\s*\}|A\.?I\.?)?\s*(\\square|\\Box)?\s*$/, '=');
+  const toks = tokenize(src);
+  if (!toks.length) throw new Error('nothing to plot yet');
+  const parts = [[]];
+  let depth = 0;
+  for (const tk of toks) {
+    if ('([{'.includes(tk.t)) depth++;
+    if (')]}'.includes(tk.t)) depth--;
+    if (tk.t === '=' && depth === 0) parts.push([]); else parts[parts.length - 1].push(tk);
+  }
+  while (parts.length > 1 && !parts[parts.length - 1].length) parts.pop();
+  if (parts.length === 1 && toks.some(t => t.t === '=') && parts[0].length === 1 && parts[0][0].t === 'id') throw new Error('nothing after "="');
+  if (parts.length === 1) { const ast = parseTokens(parts[0]); return { kind: 'explicit', lhs: null, v: null, ast, names: symbolsOf(ast) }; }
+  if (parts.length > 2) throw new Error('more than one "=": one equation per line');
+  const [L, R] = parts;
+  if (!L.length) throw new Error('nothing before "="');
+  const rhs = parseTokens(R);
+  let name = null, v = null;
+  if (L.length === 1 && L[0].t === 'id') name = L[0].v;
+  else if (L.length === 4 && L[0].t === 'id' && L[1].t === '(' && L[2].t === 'id' && L[3].t === ')') { name = L[0].v; v = L[2].v; }
+  const rn = symbolsOf(rhs);
+  if (name && name !== 'x' && !rn.includes(name)) return { kind: 'explicit', lhs: name, v, ast: rhs, names: rn };
+  const lhsAst = v ? { t: 's', name } : parseTokens(L);
+  return { kind: 'implicit', lhs: null, v: null, lhsAst, rhsAst: rhs, ast: { t: '-', a: lhsAst, b: rhs }, names: symbolsOf(lhsAst, rhs) };
+}
+
+function compile(n) {
+  switch (n.t) {
+    case 'n': { const v = n.v; return () => v; }
+    case 'pi': return () => Math.PI;
+    case 's': { const k = n.name; return e => e[k]; }
+    case 'neg': { const a = compile(n.a); return e => -a(e); }
+    case '!': {
+      const a = compile(n.a);
+      return e => { const x = a(e); if (Number.isInteger(x) && x >= 0 && x <= 170) { let f = 1; for (let i = 2; i <= x; i++) f *= i; return f; } return gamma(x + 1); };
+    }
+    case 'sqrt': {
+      const a = compile(n.a);
+      if (!n.n) return e => Math.sqrt(a(e));
+      const k = compile(n.n);
+      return e => { const x = a(e), r = k(e); return x < 0 && Math.round(r) % 2 === 1 ? -Math.pow(-x, 1 / r) : Math.pow(x, 1 / r); };
+    }
+    case 'f': {
+      const a = compile(n.a);
+      if ((n.f === 'log' || n.f === 'lg') && n.base) { const b = n.base === 'e' ? Math.E : parseFloat(n.base); return e => Math.log(a(e)) / Math.log(b); }
+      const f = FN[n.f]; return e => f(a(e));
+    }
+  }
+  const a = compile(n.a), b = compile(n.b);
+  switch (n.t) {
+    case '+': return e => a(e) + b(e);
+    case '-': return e => a(e) - b(e);
+    case '*': return e => a(e) * b(e);
+    case '/': return e => a(e) / b(e);
+    case '^': return e => Math.pow(a(e), b(e));
+  }
+  throw new Error('cannot compute ' + n.t);
+}
+
+// a number typed in a field: "6.626e-34", "2pi", "1.6·10^-19" (only e and π are known)
+function valueOf(str) {
+  const ast = parseTokens(tokenize(str));
+  const v = compile(ast)({ e: Math.E });
+  if (!isFinite(v)) throw new Error('not a number');
+  return v;
+}
+
+// ============================================================================ units
+// A unit is { f, d }: the factor to SI and the powers of m, kg, s, A, K, mol, cd. Units are used only
+// for a curve whose symbols all have one ("1" = no unit): then values are computed in SI, the units are
+// checked (sin of a length, metres + seconds …) and the vertical axis gets its unit.
+const D = (m = 0, kg = 0, s = 0, A = 0, K = 0, mol = 0, cd = 0) => [m, kg, s, A, K, mol, cd];
+const BASE = ['m', 'kg', 's', 'A', 'K', 'mol', 'cd'];
+const UNITS = {
+  m: [1, D(1)], g: [1e-3, D(0, 1)], s: [1, D(0, 0, 1)], A: [1, D(0, 0, 0, 1)], K: [1, D(0, 0, 0, 0, 1)], mol: [1, D(0, 0, 0, 0, 0, 1)], cd: [1, D(0, 0, 0, 0, 0, 0, 1)],
+  Hz: [1, D(0, 0, -1)], N: [1, D(1, 1, -2)], Pa: [1, D(-1, 1, -2)], J: [1, D(2, 1, -2)], W: [1, D(2, 1, -3)], C: [1, D(0, 0, 1, 1)], V: [1, D(2, 1, -3, -1)],
+  F: [1, D(-2, -1, 4, 2)], Ω: [1, D(2, 1, -3, -2)], ohm: [1, D(2, 1, -3, -2)], S: [1, D(-2, -1, 3, 2)], Wb: [1, D(2, 1, -2, -1)], T: [1, D(0, 1, -2, -1)], H: [1, D(2, 1, -2, -2)],
+  eV: [1.602176634e-19, D(2, 1, -2)], Å: [1e-10, D(1)], L: [1e-3, D(3)], l: [1e-3, D(3)], M: [1e3, D(-3, 0, 0, 0, 0, 1)],
+  min: [60, D(0, 0, 1)], h: [3600, D(0, 0, 1)], day: [86400, D(0, 0, 1)], yr: [3.15576e7, D(0, 0, 1)],
+  bar: [1e5, D(-1, 1, -2)], atm: [101325, D(-1, 1, -2)], Torr: [133.322, D(-1, 1, -2)], u: [1.66053906660e-27, D(0, 1)], Da: [1.66053906660e-27, D(0, 1)],
+  rad: [1, D()], sr: [1, D()], deg: [Math.PI / 180, D()], '°': [Math.PI / 180, D()], '%': [0.01, D()], G: [1e-4, D(0, 1, -2, -1)],
+};
+const NO_PREFIX = new Set(['min', 'h', 'day', 'yr', 'deg', '°', '%', 'atm', 'Torr', 'rad', 'sr', 'M', 'u']);
+const PREFIX = { Y: 1e24, Z: 1e21, E: 1e18, P: 1e15, T: 1e12, G: 1e9, M: 1e6, k: 1e3, h: 1e2, da: 1e1, d: 1e-1, c: 1e-2, m: 1e-3, µ: 1e-6, μ: 1e-6, u: 1e-6, n: 1e-9, p: 1e-12, f: 1e-15, a: 1e-18, z: 1e-21, y: 1e-24 };
+function unitAtom(w) {
+  if (UNITS[w]) return UNITS[w];
+  for (const p of Object.keys(PREFIX).sort((a, b) => b.length - a.length)) {
+    if (w.length > p.length && w.startsWith(p)) {
+      const r = w.slice(p.length);
+      if (UNITS[r] && !NO_PREFIX.has(r)) return [PREFIX[p] * UNITS[r][0], UNITS[r][1]];
+    }
+  }
+  return null;
+}
+const uMul = (a, b) => ({ f: a.f * b.f, d: a.d.map((x, k) => x + b.d[k]) });
+const uPow = (u, k) => ({ f: Math.pow(u.f, k), d: u.d.map(x => x * k) });
+const sameD = (a, b) => a.every((x, k) => Math.abs(x - b[k]) < 1e-9);
+const zeroD = a => a.every(x => Math.abs(x) < 1e-9);
+// "kg m^2 s^-2", "m/s²", "J·s", "1/mol", "W/(m^2 K^4)", "nm", "eV" — "/" divides by the next factor only
+function parseUnit(str) {
+  const s = String(str || '').trim().replace(/[·⋅×∙*]/g, ' ').replace(/\s*\/\s*/g, '/').replace(/\s*\^\s*/g, '^');
+  if (!s) return null;
+  let i = 0;
+  const SUPS = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-' };
+  const exp = () => {
+    let m;
+    if (s[i] === '^') {
+      i++;
+      const paren = s[i] === '(';
+      if (paren) i++;
+      m = /^[+-]?\d+(?:\.\d+)?(?:\/\d+)?/.exec(s.slice(i));
+      if (!m) throw new Error('a power needs a number');
+      i += m[0].length;
+      if (paren) { if (s[i] !== ')') throw new Error('")" missing'); i++; }
+      const [a, b] = m[0].split('/');
+      return b ? +a / +b : +a;
+    }
+    if ((m = /^[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/.exec(s.slice(i)))) { i += m[0].length; return +m[0].split('').map(c => SUPS[c]).join(''); }
+    if ((m = /^-?\d+/.exec(s.slice(i)))) { i += m[0].length; return +m[0]; } // m2, s-1
+    return 1;
+  };
+  const factor = () => {
+    if (s[i] === '(') { i++; const u = product(); if (s[i] !== ')') throw new Error('")" missing'); i++; return uPow(u, exp()); }
+    if (s[i] === '1' && !/[\d.]/.test(s[i + 1] || '')) { i++; return { f: 1, d: D() }; }
+    const m = /^[A-Za-zµμΩÅ°%]+/.exec(s.slice(i));
+    if (!m) throw new Error(`"${s[i]}" is not part of a unit`);
+    i += m[0].length;
+    const a = unitAtom(m[0]);
+    if (!a) throw new Error(`unknown unit "${m[0]}"`);
+    return uPow({ f: a[0], d: a[1].slice() }, exp());
+  };
+  const product = () => {
+    let u = factor();
+    for (;;) {
+      while (s[i] === ' ') i++;
+      if (i >= s.length || s[i] === ')') return u;
+      if (s[i] === '/') { i++; while (s[i] === ' ') i++; u = uMul(u, uPow(factor(), -1)); }
+      else u = uMul(u, factor());
+    }
+  };
+  const u = product();
+  if (i < s.length) throw new Error(`"${s.slice(i)}" is not understood`);
+  return u;
+}
+const unitCache = new Map();
+function unitOf(str) { // parsed unit, or null (none given) / { error }
+  if (!str) return null;
+  if (!unitCache.has(str)) { try { unitCache.set(str, parseUnit(str)); } catch (e) { unitCache.set(str, { error: e.message }); } }
+  return unitCache.get(str);
+}
+const NAMED = [['Ω', D(2, 1, -3, -2)], ['V', D(2, 1, -3, -1)], ['W', D(2, 1, -3)], ['J', D(2, 1, -2)], ['N', D(1, 1, -2)], ['Pa', D(-1, 1, -2)],
+  ['C', D(0, 0, 1, 1)], ['F', D(-2, -1, 4, 2)], ['S', D(-2, -1, 3, 2)], ['T', D(0, 1, -2, -1)], ['Wb', D(2, 1, -2, -1)], ['H', D(2, 1, -2, -2)],
+  ['J s', D(2, 1, -1)], ['m/s', D(1, 0, -1)], ['m/s²', D(1, 0, -2)], ['J/K', D(2, 1, -2, 0, -1)], ['kg m/s', D(1, 1, -1)], ['V/m', D(1, 1, -3, -1)], ['A/m²', D(-2, 0, 0, 1)]];
+const SUP = { '-': '⁻', '.': '·', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const supNum = k => String(+k.toFixed(3)).split('').map(c => SUP[c] || c).join('');
+function dimName(d) { // '' = no unit
+  if (zeroD(d)) return '';
+  const named = NAMED.find(([, nd]) => sameD(nd, d));
+  if (named) return named[0];
+  const part = (k, p) => BASE[k] + (p === 1 ? '' : supNum(p));
+  const pos = [], neg = [];
+  d.forEach((p, k) => { if (p > 1e-9) pos.push(part(k, p)); else if (p < -1e-9) neg.push(part(k, p)); });
+  return [...pos, ...neg].join(' ');
+}
+// the units of an expression from the units of its symbols; warn() for what does not fit together
+function dimCheck(n, dimOfSym, warn) {
+  const constVal = m => (symbolsOf(m).length ? null : compile(m)({}));
+  const go = n => {
+    switch (n.t) {
+      case 'n': case 'pi': return D();
+      case 's': return dimOfSym(n.name);
+      case 'neg': return go(n.a);
+      case '+': case '-': {
+        const a = go(n.a), b = go(n.b);
+        if (a && b && !sameD(a, b)) warn(`${dimName(a) || 'no unit'} ${n.t === '+' ? '+' : '−'} ${dimName(b) || 'no unit'} do not match`);
+        return a;
+      }
+      case '*': { const a = go(n.a), b = go(n.b); return a.map((x, k) => x + b[k]); }
+      case '/': { const a = go(n.a), b = go(n.b); return a.map((x, k) => x - b[k]); }
+      case '^': {
+        const a = go(n.a), b = go(n.b);
+        if (!zeroD(b)) warn(`a power with units in the exponent (${dimName(b)})`);
+        if (zeroD(a)) return D();
+        const k = constVal(n.b);
+        if (k == null || !isFinite(k)) { warn(`${dimName(a)} to a variable power`); return D(); }
+        return a.map(x => x * k);
+      }
+      case 'sqrt': { const a = go(n.a), k = n.n ? constVal(n.n) : 2; return a.map(x => x / (k || 2)); }
+      case '!': { const a = go(n.a); if (!zeroD(a)) warn(`a factorial of ${dimName(a)}`); return D(); }
+      case 'f': {
+        const a = go(n.a);
+        if (['abs', 'floor', 'ceil', 'round'].includes(n.f)) return a;
+        if (!zeroD(a)) warn(`${n.f}( ) of ${dimName(a)}: the argument should have no unit`);
+        return D();
+      }
+    }
+    return D();
+  };
+  return go(n);
+}
+
+// ============================================================================ typesetting
+const nameTex = name => {
+  const [base, ...r] = name.split('_'), sub = r.join('_');
+  const t = x => TEX_OF[x] ? `{${TEX_OF[x]}}` : x.length > 1 && /^[A-Za-z]+$/.test(x) ? `\\mathrm{${x}}` : x.replace(/[^A-Za-z0-9]/g, c => (TEX_OF[c] ? `{${TEX_OF[c]}}` : c));
+  return sub ? `${t(base)}_{${t(sub)}}` : t(base);
+};
+const PREC = n => ({ '+': 1, '-': 1, '*': 2, '/': 2, neg: 2, '^': 4 }[n.t] || 5);
+const leftLeaf = n => (n.t === '*' || n.t === '+' || n.t === '-' || n.t === '^' ? leftLeaf(n.a) : n);
+const FN_TEX = { sin: 1, cos: 1, tan: 1, cot: 1, sec: 1, csc: 1, sinh: 1, cosh: 1, tanh: 1, coth: 1, arcsin: 1, arccos: 1, arctan: 1, ln: 1, log: 1, lg: 1 };
+function numTex(n) {
+  if (!isFinite(n.v)) return '\\infty';
+  const m = /^(.*?)[eE]([+-]?\d+)$/.exec(n.raw || '');
+  return m ? `${m[1]}\\times10^{${+m[2]}}` : String(n.raw ?? n.v).replace(',', '{,}');
+}
+function toTex(n, sym) {
+  const go = n => {
+    const paren = s => `\\left(${s}\\right)`;
+    switch (n.t) {
+      case 'n': return numTex(n);
+      case 'pi': return '\\pi';
+      case 's': return sym(n.name);
+      case '+': return `${go(n.a)} + ${go(n.b)}`;
+      case '-': return `${go(n.a)} - ${PREC(n.b) <= 1 ? paren(go(n.b)) : go(n.b)}`;
+      case 'neg': return `-${PREC(n.a) <= 1 ? paren(go(n.a)) : go(n.a)}`;
+      case '*': {
+        const a = PREC(n.a) < 2 ? paren(go(n.a)) : go(n.a), b = PREC(n.b) < 2 || n.b.t === 'neg' ? paren(go(n.b)) : go(n.b);
+        return a + (!n.imp || leftLeaf(n.b).t === 'n' ? ' \\cdot ' : ' ') + b;
+      }
+      case '/': return `\\frac{${go(n.a)}}{${go(n.b)}}`;
+      case '^': {
+        const base = PREC(n.a) < 5 || n.a.t === 'f' || n.a.t === '!' || (n.a.t === 'n' && n.a.v < 0) ? paren(go(n.a)) : go(n.a);
+        return `{${base}}^{${go(n.b)}}`;
+      }
+      case '!': return `${PREC(n.a) < 5 ? paren(go(n.a)) : go(n.a)}!`;
+      case 'sqrt': return n.n ? `\\sqrt[${go(n.n)}]{${go(n.a)}}` : `\\sqrt{${go(n.a)}}`;
+      case 'f': {
+        if (n.f === 'abs') return `\\left|${go(n.a)}\\right|`;
+        if (n.f === 'exp') return `\\mathrm{e}^{${go(n.a)}}`;
+        const name = { asin: 'arcsin', acos: 'arccos', atan: 'arctan' }[n.f] || n.f;
+        const head = FN_TEX[name] ? `\\${name}` : `\\operatorname{${name}}`;
+        return `${head}${n.base ? `_{${n.base}}` : ''}${paren(go(n.a))}`;
+      }
+    }
+    return '';
+  };
+  return go(n);
+}
+// the same without KaTeX: plain HTML
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const nameHtmlPlain = name => { const [b, ...r] = name.split('_'); return `<i>${esc(b)}</i>${r.length ? `<sub>${esc(r.join('_'))}</sub>` : ''}`; };
+function toHtml(n, sym) {
+  const go = n => {
+    const paren = s => `(${s})`;
+    switch (n.t) {
+      case 'n': return esc(n.raw ?? n.v);
+      case 'pi': return 'π';
+      case 's': return sym(n.name);
+      case '+': return `${go(n.a)} + ${go(n.b)}`;
+      case '-': return `${go(n.a)} − ${PREC(n.b) <= 1 ? paren(go(n.b)) : go(n.b)}`;
+      case 'neg': return `−${PREC(n.a) <= 1 ? paren(go(n.a)) : go(n.a)}`;
+      case '*': return `${PREC(n.a) < 2 ? paren(go(n.a)) : go(n.a)}${n.imp && leftLeaf(n.b).t !== 'n' ? ' ' : '·'}${PREC(n.b) < 2 ? paren(go(n.b)) : go(n.b)}`;
+      case '/': return `${PREC(n.a) < 5 ? paren(go(n.a)) : go(n.a)}/${PREC(n.b) < 5 ? paren(go(n.b)) : go(n.b)}`;
+      case '^': return `${PREC(n.a) < 5 ? paren(go(n.a)) : go(n.a)}<sup>${go(n.b)}</sup>`;
+      case '!': return `${go(n.a)}!`;
+      case 'sqrt': return `√(${go(n.a)})`;
+      case 'f': return n.f === 'abs' ? `|${go(n.a)}|` : `${n.f}${n.base ? `<sub>${esc(n.base)}</sub>` : ''}(${go(n.a)})`;
+    }
+    return '';
+  };
+  return go(n);
+}
+const hasKatex = () => typeof window.katex !== 'undefined';
+const KOPT = { throwOnError: false, trust: true, strict: 'ignore', output: 'html' };
+const nameHtml = name => (hasKatex() ? katex.renderToString(nameTex(name), KOPT) : nameHtmlPlain(name));
+
+// ============================================================================ state
+const state = {
+  theme: START.theme === 'dark' ? 'dark' : 'light',
+  themeChosen: false,  // ◐ pressed: no longer follows the board
+  curves: [],          // { id, src, color, hidden, parsed, fn, error, editing, complete, partial, dims, unitWarn }
+  params: new Map(),   // name -> { v, min, max, set, slider, note, unit } (also the axis variables, for their unit)
+  xVar: null,          // horizontal axis, chosen by the user; otherwise from the equations
+  yVar: null,          // vertical variable of implicit curves (default y)
+  yUnit: '',           // unit the vertical axis is shown in (e.g. kΩ); '' = as computed
+  view: { x0: START.x[0], x1: START.x[1], y0: START.y[0], y1: START.y[1] },
+  hover: null,         // x value under the pointer
+  playing: new Set(),
+};
+let nextId = 1;
+
+function axisVar() {
+  if (state.xVar) return state.xVar;
+  for (const c of state.curves) if (c.parsed && c.parsed.v) return c.parsed.v;
+  const all = new Set(state.curves.flatMap(c => (c.parsed ? c.parsed.names : [])));
+  for (const n of ['x', 't', 'r', 'z', 'θ', 'φ', 'ω', 'k', 'E', 'T', 'V', 'B', 'n']) if (all.has(n)) return n;
+  return 'x';
+}
+const hasImplicit = () => state.curves.some(c => c.parsed && c.parsed.kind === 'implicit');
+function yVarOf() { if (state.yVar && state.yVar !== axisVar()) return state.yVar; return axisVar() === 'y' ? 'x' : 'y'; }
+function usedNames() {
+  const xv = axisVar(), yv = hasImplicit() ? yVarOf() : null, out = [];
+  for (const c of state.curves) if (c.parsed) for (const n of c.parsed.names) if (n !== xv && n !== yv && !out.includes(n)) out.push(n);
+  return out;
+}
+function param(name) {
+  let P = state.params.get(name);
+  if (!P) {
+    const s = START.values && START.values[name];
+    if (s) P = { v: s.v, min: s.min ?? Math.min(0, 2 * s.v), max: s.max ?? (Math.max(0, 2 * s.v) || 1), set: true, slider: s.slider !== false, note: s.note || '', unit: s.unit || '' };
+    else if (name === 'e') P = { v: Math.E, min: 0, max: 5, set: true, slider: false, note: "Euler's number", unit: '1' };
+    else P = { v: 1, min: -2, max: 2, set: false, slider: true, note: '', unit: '' };
+    state.params.set(name, P);
+  }
+  return P;
+}
+function setValue(name, v, { fromSlider = false } = {}) {
+  const P = param(name);
+  P.v = v; P.set = true;
+  if (!fromSlider) {
+    // a range that fits the value (also for tiny or huge physical values)
+    const span = P.max - P.min;
+    if (v < P.min || v > P.max || (v !== 0 && Math.abs(v) < span / 400)) {
+      if (v > 0) { P.min = 0; P.max = 2 * v; } else if (v < 0) { P.min = 2 * v; P.max = 0; } else { P.min = -1; P.max = 1; }
+    }
+  }
+}
+function colorOf(c) { return PALETTE[state.theme][c.color] || PALETTE[state.theme].blue; }
+const unitStr = name => { const P = state.params.get(name); return P && P.unit && P.unit !== '1' ? P.unit : ''; };
+
+function setSource(c, src) {
+  c.src = src;
+  try {
+    c.parsed = parseEquation(src);
+    c.fn = compile(c.parsed.ast);
+    c.error = null;
+  } catch (err) {
+    c.parsed = null; c.fn = null; c.error = err.message;
+  }
+}
+function addCurve(src, { edit = false, fit = false, quiet = false } = {}) {
+  const used = new Set(state.curves.map(c => c.color));
+  const color = COLOR_ORDER.find(k => !used.has(k)) || COLOR_ORDER[state.curves.length % COLOR_ORDER.length];
+  const c = { id: nextId++, src: '', color, hidden: false, parsed: null, fn: null, error: null, editing: edit };
+  if (src) setSource(c, src);
+  state.curves.push(c);
+  for (const n of usedNames()) param(n);
+  if (!quiet) { renderAll(); if (fit && c.fn) fitIfLost(c); }
+  return c;
+}
+// LaTeX from a DTUwrite card: one curve per line that can be read (aligned blocks, several lines)
+function curvesFromLatex(latex) {
+  const lines = String(latex).replace(/\\(begin|end)\{[a-zA-Z*]+\}/g, '').split(/\\\\|\n/).map(l => l.replace(/&/g, '').trim()).filter(Boolean);
+  const ok = lines.filter(l => { try { parseEquation(l); return true; } catch { return false; } });
+  return ok.length ? ok : lines.slice(0, 1);
+}
+
+// which curves compute with units, what they come out in, and what does not fit together
+function analyse() {
+  for (const c of state.curves) {
+    c.complete = false; c.partial = false; c.dims = null; c.unitWarn = []; c.missing = [];
+    if (!c.parsed) continue;
+    const names = c.parsed.names, units = names.map(n => unitOf(state.params.get(n)?.unit));
+    const good = units.filter(u => u && !u.error).length;
+    c.complete = good === names.length;
+    c.partial = good > 0 && !c.complete;
+    c.missing = names.filter((n, k) => !units[k] || units[k].error);
+    if (!c.complete) continue;
+    const warn = w => { if (!c.unitWarn.includes(w)) c.unitWarn.push(w); };
+    const dOf = n => unitOf(state.params.get(n).unit).d;
+    if (c.parsed.kind === 'explicit') c.dims = dimCheck(c.parsed.ast, dOf, warn);
+    else {
+      const a = dimCheck(c.parsed.lhsAst, dOf, warn), b = dimCheck(c.parsed.rhsAst, dOf, warn);
+      if (!sameD(a, b)) warn(`the two sides have different units (${dimName(a) || 'no unit'} and ${dimName(b) || 'no unit'})`);
+    }
+  }
+}
+// the vertical axis: its unit, and the factor from SI to it (explicit curves computed with units)
+function vAxis() {
+  const ex = state.curves.filter(c => c.fn && !c.hidden && c.parsed.kind === 'explicit');
+  if (!ex.length) { // implicit curves only: the vertical variable's own unit
+    const u = unitStr(yVarOf());
+    return { label: u, f: 1, dims: null };
+  }
+  const dims = ex.every(c => c.complete) && ex.every(c => sameD(c.dims, ex[0].dims)) ? ex[0].dims : null;
+  const over = state.yUnit ? unitOf(state.yUnit) : null;
+  if (over && !over.error) {
+    if (!dims) return { label: state.yUnit, f: 1, dims: null, labelOnly: true };
+    if (sameD(over.d, dims)) return { label: state.yUnit, f: over.f, dims };
+    return { label: dimName(dims), f: 1, dims, mismatch: true };
+  }
+  return { label: dims ? dimName(dims) : '', f: 1, dims };
+}
+
+// ============================================================================ the equations at the top
+const curvesEl = document.getElementById('curves');
+function renderCurves() {
+  curvesEl.innerHTML = '';
+  for (const c of state.curves) {
+    const row = document.createElement('div');
+    row.className = 'crow' + (c.hidden ? ' hidden' : '');
+    row.dataset.id = c.id;
+    const dot = document.createElement('button');
+    dot.className = 'dot'; dot.title = 'Colour, show / hide';
+    dot.style.background = colorOf(c); dot.style.color = colorOf(c);
+    dot.addEventListener('click', e => { e.stopPropagation(); openPalette(c, dot); });
+    row.appendChild(dot);
+    if (c.editing) {
+      const inp = document.createElement('input');
+      inp.className = 'eqin'; inp.value = c.src; inp.spellcheck = false;
+      inp.placeholder = 'y = a x^2 + b x + c    x^2 + y^2 = r^2    y = \\frac{A}{1+(x/x_0)^2}';
+      let done = false;
+      const finish = keep => {
+        if (done) return; done = true;
+        c.editing = false;
+        const before = c.src;
+        if (keep && inp.value.trim() !== before) setSource(c, inp.value.trim());
+        if (!c.src && !c.error) state.curves = state.curves.filter(q => q !== c);
+        for (const n of usedNames()) param(n);
+        renderAll();
+        if (keep && c.fn && c.src !== before) fitIfLost(c);
+      };
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+      inp.addEventListener('blur', () => finish(true));
+      row.appendChild(inp);
+      curvesEl.appendChild(row);
+      setTimeout(() => { inp.focus(); inp.select(); });
+      continue;
+    }
+    const eq = document.createElement('div');
+    eq.className = 'eq';
+    eq.title = 'Click to edit the equation; point at a symbol to give it a value or a unit';
+    if (c.parsed) {
+      const names = [];
+      const symIdx = n => { let i = names.indexOf(n); if (i < 0) { i = names.length; names.push(n); } return i; };
+      const P = c.parsed, lhs = P.lhs || 'y';
+      if (hasKatex()) {
+        const sym = n => `\\htmlClass{gsym${symIdx(n)}}{${nameTex(n)}}`;
+        const tex = P.kind === 'implicit'
+          ? `${toTex(P.lhsAst, sym)} = ${toTex(P.rhsAst, sym)}`
+          : `\\htmlClass{gsymv}{${nameTex(lhs)}}${P.v ? `\\left(${sym(P.v)}\\right)` : ''} = ${toTex(P.ast, sym)}`;
+        eq.innerHTML = katex.renderToString(`\\displaystyle ${tex}`, KOPT);
+        eq.querySelectorAll('[class*="gsym"]').forEach(el => {
+          if (/\bgsymv\b/.test(el.className)) { el.dataset.sym = lhs; el.dataset.role = 'v'; el.classList.add('gsym'); return; }
+          const m = /\bgsym(\d+)\b/.exec(el.className);
+          if (m) { el.dataset.sym = names[+m[1]]; el.classList.add('gsym'); }
+        });
+      } else {
+        eq.classList.add('plain');
+        const sym = n => `<span class="gsym" data-sym="${esc(n)}">${nameHtmlPlain(n)}</span>`;
+        eq.innerHTML = P.kind === 'implicit'
+          ? `${toHtml(P.lhsAst, sym)} = ${toHtml(P.rhsAst, sym)}`
+          : `<span class="gsym" data-sym="${esc(lhs)}" data-role="v">${nameHtmlPlain(lhs)}</span>${P.v ? `(${sym(P.v)})` : ''} = ${toHtml(P.ast, sym)}`;
+      }
+    } else {
+      eq.textContent = c.src || '(empty)';
+    }
+    eq.addEventListener('click', e => {
+      const s = symAt(e);
+      if (s) { openPop(s.dataset.sym, s, true); return; }
+      c.editing = true; renderCurves();
+    });
+    row.appendChild(eq);
+    const edit = document.createElement('button');
+    edit.className = 'ibtn'; edit.textContent = '✎'; edit.title = 'Edit the equation';
+    edit.addEventListener('click', () => { c.editing = true; renderCurves(); });
+    const del = document.createElement('button');
+    del.className = 'ibtn'; del.textContent = '✕'; del.title = 'Remove this curve';
+    del.addEventListener('click', () => { state.curves = state.curves.filter(q => q !== c); renderAll(); });
+    row.append(edit, del);
+    curvesEl.appendChild(row);
+    const note = (cls, text) => { const el = document.createElement('div'); el.className = cls; el.textContent = text; curvesEl.appendChild(el); };
+    if (c.error) note('err', '⚠ ' + c.error);
+    for (const w of c.unitWarn || []) note('unote', '⚠ units: ' + w);
+    if (c.partial) note('unote dim', `Units are used once every symbol has one ("1" for none). Still without: ${c.missing.join(', ')}`);
+  }
+  const add = document.createElement('div');
+  add.className = 'addrow';
+  add.innerHTML = `<button class="addbtn" title="Another curve in the same graph (also implicit, e.g. x^2 + y^2 = r^2)">＋ curve</button>`;
+  add.firstChild.addEventListener('click', () => addCurve('', { edit: true }));
+  curvesEl.appendChild(add);
+  markSymbols();
+}
+// symbol classes: amber = needs a value, underline = slider, dotted = constant
+function markSymbols() {
+  const xv = axisVar(), yv = hasImplicit() ? yVarOf() : null;
+  document.querySelectorAll('.gsym[data-sym]').forEach(el => {
+    const n = el.dataset.sym, axis = el.dataset.role === 'v' || n === xv || n === yv, P = axis ? null : param(n);
+    el.classList.toggle('unset', !!P && !P.set);
+    el.classList.toggle('param', !!P && P.set && P.slider);
+    el.classList.toggle('const', !!P && P.set && !P.slider);
+    const u = unitStr(n);
+    el.title = axis ? `${n}: the ${n === xv ? 'horizontal' : 'vertical'} axis${u ? ' [' + u + ']' : ''}`
+      : P.set ? `${n} = ${fmt(P.v)}${u ? ' ' + u : ''}${P.note ? ' (' + P.note + ')' : ''}` : `${n}: give it a value`;
+  });
+}
+// the symbol under the pointer: by position, since KaTeX lays other spans over small symbols in fractions
+function symAt(e) {
+  const t = e.target.closest && e.target.closest('.gsym[data-sym]');
+  if (t) return t;
+  for (const el of curvesEl.querySelectorAll('.gsym[data-sym]')) {
+    const r = el.getBoundingClientRect();
+    if (e.clientX >= r.left - 1 && e.clientX <= r.right + 1 && e.clientY >= r.top - 1 && e.clientY <= r.bottom + 1) return el;
+  }
+  return null;
+}
+// pointing at a symbol (mouse or a hovering pen) opens its box; a tap does too
+let overSym = null;
+curvesEl.addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch') return;
+  const s = symAt(e);
+  if (s === overSym) return;
+  overSym = s;
+  if (s) schedulePop(s.dataset.sym, s); else scheduleClose();
+});
+curvesEl.addEventListener('pointerleave', () => { if (overSym) { overSym = null; scheduleClose(); } });
+
+// ============================================================================ the control panel
+const panel = document.getElementById('panel');
+const rowEls = new Map(); // name -> { range, val, row }
+function renderPanel() {
+  const names = usedNames();
+  rowEls.clear();
+  const sliders = names.filter(n => param(n).slider), consts = names.filter(n => !param(n).slider);
+  const unset = names.filter(n => !param(n).set);
+  const unitSpan = n => `<span class="punit gsym" data-sym="${esc(n)}" title="Unit (click to change)">${esc(unitStr(n))}</span>`;
+  let h = `<h2>Parameters</h2>`;
+  if (unset.length) h += `<div class="hint">Point at (or tap) a highlighted symbol to give it a value.</div>`;
+  if (!sliders.length) h += `<div class="empty">No parameters: the equation has only numbers${consts.length ? ' and constants' : ''}.</div>`;
+  for (const n of sliders) {
+    h += `<div class="prow" data-n="${esc(n)}">
+      <div class="ptop"><span class="pname gsym" data-sym="${esc(n)}">${nameHtml(n)}</span><span class="eqs">=</span><input class="pval" inputmode="decimal">${unitSpan(n)}<button class="play" title="Sweep it back and forth">▶</button></div>
+      <input class="prange" type="range" min="0" max="1000" step="1">
+      <div class="pends"><input class="pend" data-k="min" title="Slider start"><input class="pend r" data-k="max" title="Slider end"></div>
+    </div>`;
+  }
+  if (consts.length) {
+    h += `<h2>Constants</h2>`;
+    for (const n of consts) h += `<div class="crow2" data-n="${esc(n)}"><span class="pname gsym" data-sym="${esc(n)}">${nameHtml(n)}</span><span class="eqs">=</span><input class="pval">${unitSpan(n)}<span class="note">${esc(param(n).note || '')}</span></div>`;
+  }
+  panel.innerHTML = h;
+  panel.querySelectorAll('[data-n]').forEach(row => {
+    const n = row.dataset.n, P = param(n);
+    const val = row.querySelector('.pval'), range = row.querySelector('.prange');
+    rowEls.set(n, { val, range, row });
+    val.addEventListener('change', () => {
+      try { setValue(n, valueOf(val.value)); val.classList.remove('bad'); } catch { val.classList.add('bad'); return; }
+      renderPanel(); markSymbols(); draw();
+    });
+    val.addEventListener('keydown', e => { if (e.key === 'Enter') val.blur(); });
+    if (range) {
+      range.addEventListener('input', () => {
+        const wasSet = P.set;
+        setValue(n, P.min + (P.max - P.min) * range.value / 1000, { fromSlider: true });
+        val.value = fmtIn(P.v);
+        if (!wasSet) { markSymbols(); renderPanel(); }
+        draw();
+      });
+      row.querySelector('.play').addEventListener('click', e => {
+        if (state.playing.has(n)) state.playing.delete(n); else { state.playing.add(n); P.set = true; P.t0 = performance.now(); P.v0 = P.v; markSymbols(); }
+        e.currentTarget.classList.toggle('on', state.playing.has(n));
+        e.currentTarget.textContent = state.playing.has(n) ? '⏸' : '▶';
+        if (state.playing.size === 1) requestAnimationFrame(tick);
+      });
+      row.querySelectorAll('.pend').forEach(inp => {
+        inp.addEventListener('change', () => {
+          let v; try { v = valueOf(inp.value); } catch { inp.classList.add('bad'); return; }
+          inp.classList.remove('bad');
+          if (inp.dataset.k === 'min') P.min = v; else P.max = v;
+          if (P.min > P.max) [P.min, P.max] = [P.max, P.min];
+          if (P.min === P.max) P.max = P.min + 1;
+          P.v = Math.min(P.max, Math.max(P.min, P.v));
+          syncRow(n); draw();
+        });
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+      });
+    }
+    const btn = row.querySelector('.play');
+    if (btn && state.playing.has(n)) { btn.classList.add('on'); btn.textContent = '⏸'; }
+    syncRow(n);
+  });
+  panel.querySelectorAll('.gsym[data-sym]').forEach(s => {
+    s.addEventListener('pointerenter', e => { if (e.pointerType !== 'touch') schedulePop(s.dataset.sym, s); });
+    s.addEventListener('pointerleave', scheduleClose);
+    s.addEventListener('click', () => openPop(s.dataset.sym, s, true));
+  });
+  markSymbols();
+}
+function syncRow(n) {
+  const r = rowEls.get(n), P = param(n);
+  if (!r) return;
+  if (document.activeElement !== r.val) r.val.value = fmtIn(P.v);
+  if (r.range) r.range.value = String(Math.round((P.v - P.min) / (P.max - P.min) * 1000));
+  r.row.querySelectorAll('.pend').forEach(inp => { if (document.activeElement !== inp) inp.value = fmtIn(inp.dataset.k === 'min' ? P.min : P.max); });
+}
+function tick(now) {
+  if (!state.playing.size) return;
+  for (const n of state.playing) {
+    const P = param(n);
+    // a smooth sweep min → max → min, 5 s per round, starting from where the slider was
+    const u0 = Math.acos(1 - 2 * Math.min(1, Math.max(0, (P.v0 - P.min) / (P.max - P.min)))) / (2 * Math.PI);
+    const u = u0 + (now - P.t0) / 5000;
+    P.v = P.min + (P.max - P.min) * (0.5 - 0.5 * Math.cos(2 * Math.PI * u));
+    syncRow(n);
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+// ============================================================================ the value box
+const pop = document.getElementById('pop');
+let popTimer = 0, closeTimer = 0, popName = null, popAnchor = null;
+function schedulePop(name, anchor) {
+  clearTimeout(closeTimer);
+  if (popName === name && !pop.hidden) return;
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => openPop(name, anchor, false), 140);
+}
+function scheduleClose() {
+  clearTimeout(popTimer);
+  clearTimeout(closeTimer);
+  closeTimer = setTimeout(() => { if (!pop.contains(document.activeElement)) closePop(); }, 450);
+}
+pop.addEventListener('pointerenter', () => clearTimeout(closeTimer));
+pop.addEventListener('pointerleave', scheduleClose);
+function closePop() {
+  pop.hidden = true; popName = null;
+  if (popAnchor) popAnchor.classList.remove('on');
+  popAnchor = null;
+}
+// a unit field: checked as it is typed, used when left
+function unitField(inp, errEl, apply) {
+  const check = () => { const u = unitOf(inp.value.trim()); const bad = u && u.error; inp.classList.toggle('bad', !!bad); errEl.textContent = bad ? u.error : ''; return !bad; };
+  inp.addEventListener('input', check);
+  inp.addEventListener('change', () => { if (check()) apply(inp.value.trim()); });
+}
+// a range pair (axis ends) in the box
+function rangeFields(a, b, ka, kb) {
+  a.value = fmtIn(state.view[ka]); b.value = fmtIn(state.view[kb]);
+  for (const inp of [a, b]) inp.addEventListener('change', () => { try { setView(inp === a ? ka : kb, valueOf(inp.value)); inp.classList.remove('bad'); } catch { inp.classList.add('bad'); } });
+}
+function openPop(name, anchor, focus) {
+  clearTimeout(popTimer); clearTimeout(closeTimer);
+  if (!name) return;
+  if (popAnchor) popAnchor.classList.remove('on');
+  popName = name; popAnchor = anchor; anchor.classList.add('on');
+  const xv = axisVar(), imp = hasImplicit(), yv = yVarOf();
+  const changed = () => { analyse(); renderAll(); };
+  if (anchor.dataset.role === 'v') {
+    // the quantity on the vertical axis (left of "=")
+    const va = vAxis();
+    pop.innerHTML = `<div class="ph"><span>${nameHtml(name)}</span><span style="font-size:.85rem">is the vertical axis</span></div>
+      <div class="pr">${va.dims ? `unit from the symbols: <b>${esc(dimName(va.dims) || 'none')}</b>; show in` : 'unit (label)'} <input class="u" data-k="yu" placeholder="${esc(va.dims ? dimName(va.dims) : 'e.g. kΩ')}"></div>
+      <div class="uerr"></div>
+      ${va.mismatch ? `<div class="uerr">${esc(state.yUnit)} does not fit ${esc(dimName(va.dims))}: not used</div>` : ''}
+      <div class="pr">from <input data-k="y0"> to <input data-k="y1"></div>
+      <div class="note">${va.dims ? 'Every symbol has a unit, so the result is computed in SI and shown in the unit you choose (kΩ, meV, nm …).' : 'Give every symbol a unit ("1" for none) to compute the unit of the result.'}</div>`;
+    const u = pop.querySelector('[data-k=yu]');
+    u.value = state.yUnit;
+    unitField(u, pop.querySelector('.uerr'), v => { state.yUnit = v; changed(); fitY(); });
+    rangeFields(pop.querySelector('[data-k=y0]'), pop.querySelector('[data-k=y1]'), 'y0', 'y1');
+  } else if (name === xv || (imp && name === yv)) {
+    const hor = name === xv, P = param(name);
+    pop.innerHTML = `<div class="ph"><span>${nameHtml(name)}</span><span style="font-size:.85rem">is the ${hor ? 'horizontal' : 'vertical'} axis</span></div>
+      <div class="pr">unit <input class="u" data-k="u" placeholder="none"></div><div class="uerr"></div>
+      <div class="pr">from <input data-k="a"> to <input data-k="b"></div>
+      <div class="note">To plot against another symbol, open that symbol and choose ${hor ? '"Horizontal axis"' : '"Vertical axis"'}.</div>`;
+    const u = pop.querySelector('[data-k=u]');
+    u.value = P.unit;
+    unitField(u, pop.querySelector('.uerr'), v => { P.unit = v; changed(); });
+    rangeFields(pop.querySelector('[data-k=a]'), pop.querySelector('[data-k=b]'), hor ? 'x0' : 'y0', hor ? 'x1' : 'y1');
+  } else {
+    const P = param(name);
+    const known = KNOWN.filter(k => k.n === name);
+    const inImplicit = imp && state.curves.some(c => c.parsed && c.parsed.kind === 'implicit' && c.parsed.names.includes(name));
+    pop.innerHTML = `<div class="ph"><span>${nameHtml(name)}</span>=<input data-k="v" inputmode="decimal" placeholder="value"><input class="u" data-k="u" placeholder="unit"></div>
+      <div class="uerr"></div>
+      <div class="pr">slider from <input data-k="min"> to <input data-k="max"></div>
+      ${known.length ? `<div class="chips">${known.map((k, i) => `<button class="chip" data-i="${i}" title="${fmt(k.v)} ${esc(k.unit === '1' ? '' : k.unit)}">${esc(k.label)}</button>`).join('')}</div>` : ''}
+      <div class="act"><button data-a="slider">${P.slider ? 'Make it a fixed constant' : 'Give it a slider'}</button><button data-a="axis">⇄ Horizontal axis</button>${inImplicit ? '<button data-a="vaxis">⇅ Vertical axis</button>' : ''}</div>
+      ${P.note ? `<div class="note">${esc(P.note)}</div>` : ''}`;
+    const v = pop.querySelector('[data-k=v]'), u = pop.querySelector('[data-k=u]'), mn = pop.querySelector('[data-k=min]'), mx = pop.querySelector('[data-k=max]');
+    const fill = () => { v.value = P.set ? fmtIn(P.v) : ''; mn.value = fmtIn(P.min); mx.value = fmtIn(P.max); };
+    fill();
+    u.value = P.unit;
+    v.addEventListener('change', () => {
+      if (!v.value.trim()) return;
+      let val;
+      try { val = valueOf(v.value); } catch {
+        // "5 nm": a number with its unit
+        const m = /^\s*([-+]?[\d.,]+(?:e[-+]?\d+)?)\s+(\S.*)$/i.exec(v.value);
+        const uu = m && unitOf(m[2].trim());
+        if (!m || !uu || uu.error) { v.classList.add('bad'); return; }
+        val = parseFloat(m[1].replace(',', '.')); P.unit = m[2].trim(); u.value = P.unit;
+      }
+      setValue(name, val); P.note = ''; v.classList.remove('bad');
+      fill(); changed();
+    });
+    unitField(u, pop.querySelector('.uerr'), val => { P.unit = val; P.set = P.set || false; changed(); });
+    for (const inp of [mn, mx]) inp.addEventListener('change', () => {
+      let x; try { x = valueOf(inp.value); } catch { inp.classList.add('bad'); return; }
+      inp.classList.remove('bad');
+      if (inp === mn) P.min = x; else P.max = x;
+      if (P.min > P.max) [P.min, P.max] = [P.max, P.min];
+      if (P.min === P.max) P.max = P.min + 1;
+      if (P.set) P.v = Math.min(P.max, Math.max(P.min, P.v));
+      fill(); syncRow(name); draw();
+    });
+    pop.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => {
+      const k = known[+b.dataset.i];
+      setValue(name, k.v); P.slider = false; P.note = k.label; P.unit = k.unit;
+      closePop(); changed();
+    }));
+    pop.querySelector('[data-a=slider]').addEventListener('click', () => { P.slider = !P.slider; P.set = true; closePop(); changed(); });
+    pop.querySelector('[data-a=axis]').addEventListener('click', () => {
+      state.xVar = name; state.playing.delete(name);
+      for (const n of usedNames()) param(n);
+      closePop(); changed(); fitY();
+    });
+    const va = pop.querySelector('[data-a=vaxis]');
+    if (va) va.addEventListener('click', () => { state.yVar = name; state.playing.delete(name); for (const n of usedNames()) param(n); closePop(); changed(); });
+  }
+  pop.querySelectorAll('input').forEach(inp => inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') closePop(); }));
+  pop.hidden = false;
+  // below the symbol, kept on screen
+  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  let x = r.left + r.width / 2 - w / 2, y = r.bottom + 6;
+  if (y + h > innerHeight - 4) y = Math.max(4, r.top - h - 6);
+  x = Math.max(4, Math.min(innerWidth - w - 4, x));
+  pop.style.left = x + 'px'; pop.style.top = y + 'px';
+  if (focus) { const f = pop.querySelector('input'); if (f) { f.focus(); f.select(); } }
+}
+document.addEventListener('pointerdown', e => {
+  if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.gsym')) closePop();
+  if (!pal.hidden && !pal.contains(e.target)) pal.hidden = true;
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePop(); pal.hidden = true; } });
+
+// colour and show / hide of a curve
+const pal = document.getElementById('pal');
+function openPalette(c, anchor) {
+  pal.innerHTML = COLOR_ORDER.map(k => `<button data-c="${k}" title="${COLOR_NAME[k]}" class="${k === c.color ? 'on' : ''}" style="background:${PALETTE[state.theme][k]}"></button>`).join('')
+    + `<button class="hide">${c.hidden ? 'Show the curve' : 'Hide the curve'}</button>`;
+  pal.querySelectorAll('[data-c]').forEach(b => b.addEventListener('click', () => { c.color = b.dataset.c; c.hidden = false; pal.hidden = true; renderCurves(); draw(); }));
+  pal.querySelector('.hide').addEventListener('click', () => { c.hidden = !c.hidden; pal.hidden = true; renderCurves(); draw(); });
+  pal.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  pal.style.left = Math.min(innerWidth - pal.offsetWidth - 4, r.left) + 'px';
+  pal.style.top = (r.bottom + 6) + 'px';
+}
+
+// ============================================================================ numbers
+const trimZ = s => (s.includes('.') ? s.replace(/\.?0+$/, '') : s);
+function fmt(v, sig = 4) { // for reading: 6.626×10⁻³⁴
+  if (!isFinite(v)) return Number.isNaN(v) ? '—' : v > 0 ? '∞' : '−∞';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  if (a >= 1e5 || a < 1e-3) { const [m, e] = v.toExponential(sig - 1).split('e'); return `${trimZ(m)}×10${supNum(+e)}`.replace('-', '−'); }
+  return trimZ(v.toPrecision(sig)).replace('-', '−');
+}
+const fmtIn = v => (isFinite(v) ? String(+v.toPrecision(5)) : ''); // for fields: 6.626e-34, typed back as it is
+function niceStep(range, n) { const raw = range / Math.max(1, n), p = 10 ** Math.floor(Math.log10(raw)), f = raw / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+function fmtTick(v, step, E) {
+  if (Math.abs(v) < step * 1e-6) return '0';
+  const p = 10 ** E, dec = Math.max(0, -Math.floor(Math.log10(step / p) + 1e-9));
+  return (v / p).toFixed(dec).replace('-', '−');
+}
+// the power of ten taken out of an axis' numbers (0: none)
+const scaleOf = (a, b) => { const m = Math.max(Math.abs(a), Math.abs(b)); return m >= 1e4 || (m > 0 && m < 1e-2) ? Math.floor(Math.log10(m)) : 0; };
+const powTen = E => '×10' + supNum(E);
+// the typed axis ends: as many digits as the range needs
+function fmtEnd(v, span) {
+  if (!isFinite(v)) return '';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  if (a >= 1e5 || a < 1e-3) return String(+v.toPrecision(3)).replace('e+', 'e');
+  return String(+v.toFixed(Math.max(0, Math.ceil(-Math.log10(span / 200)))));
+}
+
+// ============================================================================ the plot
+const box = document.getElementById('plotBox'), cv = document.getElementById('plot'), ctx = cv.getContext('2d');
+const ends = { x0: document.getElementById('xmin'), x1: document.getElementById('xmax'), y0: document.getElementById('ymin'), y1: document.getElementById('ymax') };
+const toolsEl = document.getElementById('tools');
+let geom = { L: 0, T: 0, pw: 1, ph: 1, W: 1, H: 1 };
+const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 20;
+const cssVar = k => getComputedStyle(document.body).getPropertyValue(k).trim();
+// values for computing: as typed (curves without full units) and in SI (curves with units)
+function envs() {
+  const raw = {}, si = {};
+  for (const [n, P] of state.params) { raw[n] = P.v; const u = unitOf(P.unit); si[n] = P.v * (u && !u.error ? u.f : 1); }
+  return { raw, si };
+}
+const factorOf = name => { const u = unitOf(state.params.get(name)?.unit); return u && !u.error ? u.f : 1; };
+// one evaluator per explicit curve: x as shown → y as shown
+function curveFn(c, E, va) {
+  const xv = axisVar(), env = c.complete ? E.si : E.raw, xf = c.complete ? factorOf(xv) : 1, yf = c.complete ? va.f : 1;
+  return x => { env[xv] = x * xf; let y; try { y = c.fn(env); } catch { y = NaN; } return y / yf; };
+}
+
+// a name drawn on the canvas: italic letter, subscript below right
+function drawName(name, x, y, size, align, color) {
+  const [b, ...r] = name.split('_'), sub = r.join('_');
+  const fb = `italic ${size}px "Cambria Math", "Times New Roman", serif`, fsb = `${Math.round(size * 0.68)}px "Times New Roman", serif`;
+  ctx.font = fb; const wb = ctx.measureText(b).width;
+  ctx.font = fsb; const ws = sub ? ctx.measureText(sub).width + size * 0.05 : 0;
+  const x0 = align === 'right' ? x - wb - ws : align === 'center' ? x - (wb + ws) / 2 : x;
+  ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = fb; ctx.fillText(b, x0, y);
+  if (sub) { ctx.font = fsb; ctx.fillText(sub, x0 + wb + size * 0.05, y + size * 0.22); }
+  return wb + ws;
+}
+
+// an implicit curve: marching squares on a grid of a few pixels; pieces where the function jumps
+// through zero (a pole, 1/x) instead of crossing it are left out
+function drawImplicit(c, E, g) {
+  const { L, T, pw, ph, x0, x1, y0, y1 } = g;
+  const xv = axisVar(), yv = yVarOf(), env = c.complete ? E.si : E.raw;
+  const xf = c.complete ? factorOf(xv) : 1, yf = c.complete ? factorOf(yv) : 1;
+  const cell = Math.max(3, Math.round(rem() * 0.2));
+  const nx = Math.max(8, Math.ceil(pw / cell)), ny = Math.max(8, Math.ceil(ph / cell)), cw = pw / nx, chh = ph / ny;
+  const f = (x, y) => { env[xv] = x * xf; env[yv] = y * yf; let v; try { v = c.fn(env); } catch { v = NaN; } return v; };
+  const F = new Float64Array((nx + 1) * (ny + 1));
+  for (let j = 0; j <= ny; j++) { const y = y1 - (y1 - y0) * j / ny; for (let i = 0; i <= nx; i++) F[j * (nx + 1) + i] = f(x0 + (x1 - x0) * i / nx, y); }
+  const dx = px => x0 + (px - L) / pw * (x1 - x0), dy = py => y1 - (py - T) / ph * (y1 - y0);
+  ctx.beginPath();
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const a = F[j * (nx + 1) + i], b = F[j * (nx + 1) + i + 1], cc = F[(j + 1) * (nx + 1) + i + 1], d = F[(j + 1) * (nx + 1) + i];
+    if (!(isFinite(a) && isFinite(b) && isFinite(cc) && isFinite(d))) continue;
+    const idx = (a > 0 ? 8 : 0) | (b > 0 ? 4 : 0) | (cc > 0 ? 2 : 0) | (d > 0 ? 1 : 0);
+    if (idx === 0 || idx === 15) continue;
+    const X0 = L + i * cw, Y0 = T + j * chh, sc = Math.max(Math.abs(a), Math.abs(b), Math.abs(cc), Math.abs(d));
+    const top = () => [X0 + cw * a / (a - b), Y0], right = () => [X0 + cw, Y0 + chh * b / (b - cc)];
+    const bottom = () => [X0 + cw * d / (d - cc), Y0 + chh], left = () => [X0, Y0 + chh * a / (a - d)];
+    const S = (p, q) => {
+      const m = f(dx((p[0] + q[0]) / 2), dy((p[1] + q[1]) / 2));
+      if (!isFinite(m) || Math.abs(m) > 0.5 * sc) return;
+      ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+    };
+    switch (idx) {
+      case 1: case 14: S(left(), bottom()); break;
+      case 2: case 13: S(bottom(), right()); break;
+      case 3: case 12: S(left(), right()); break;
+      case 4: case 11: S(top(), right()); break;
+      case 6: case 9: S(top(), bottom()); break;
+      case 7: case 8: S(left(), top()); break;
+      case 5: case 10: // a saddle: the centre decides which corners belong together
+        if (((a + b + cc + d) / 4 > 0) === (a > 0)) { S(left(), bottom()); S(top(), right()); } else { S(left(), top()); S(bottom(), right()); }
+    }
+  }
+  ctx.stroke();
+}
+
+function draw() {
+  const W = box.clientWidth, H = box.clientHeight;
+  if (!W || !H) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const fs = rem(), tf = 0.8 * fs;
+  const L = Math.round(4.9 * tf), B = Math.round(2.2 * tf), T = Math.round(0.6 * fs), R = Math.round(2.9 * fs);
+  const pw = Math.max(10, W - L - R), ph = Math.max(10, H - T - B);
+  const { x0, x1, y0, y1 } = state.view;
+  geom = { L, T, pw, ph, W, H, x0, x1, y0, y1 };
+  const X = x => L + (x - x0) / (x1 - x0) * pw, Y = y => T + (y1 - y) / (y1 - y0) * ph;
+  const col = { bg: cssVar('--bg'), grid: cssVar('--grid'), axis: cssVar('--axis'), line: cssVar('--line'), muted: cssVar('--muted'), ink: cssVar('--ink') };
+  ctx.fillStyle = col.bg; ctx.fillRect(0, 0, W, H);
+
+  // grid, axes through zero, frame
+  const sx = niceStep(x1 - x0, pw / (5.2 * fs)), sy = niceStep(y1 - y0, ph / (2.4 * fs));
+  const ex = scaleOf(x0, x1), ey = scaleOf(y0, y1);
+  ctx.strokeStyle = col.grid; ctx.lineWidth = 1; ctx.beginPath();
+  for (let k = Math.ceil(x0 / sx); k * sx <= x1; k++) { const px = Math.round(X(k * sx)) + 0.5; ctx.moveTo(px, T); ctx.lineTo(px, T + ph); }
+  for (let k = Math.ceil(y0 / sy); k * sy <= y1; k++) { const py = Math.round(Y(k * sy)) + 0.5; ctx.moveTo(L, py); ctx.lineTo(L + pw, py); }
+  ctx.stroke();
+  ctx.strokeStyle = col.axis; ctx.lineWidth = 1.6; ctx.beginPath();
+  if (x0 <= 0 && 0 <= x1) { ctx.moveTo(X(0), T); ctx.lineTo(X(0), T + ph); }
+  if (y0 <= 0 && 0 <= y1) { ctx.moveTo(L, Y(0)); ctx.lineTo(L + pw, Y(0)); }
+  ctx.stroke();
+  ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, pw - 1, ph - 1);
+
+  // tick numbers (the ends are the typed fields)
+  ctx.fillStyle = col.muted; ctx.font = `${tf}px system-ui, "Segoe UI", sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let k = Math.ceil(x0 / sx); k * sx <= x1; k++) {
+    const px = X(k * sx);
+    if (px - L < 3.9 * tf || L + pw - px < 3.9 * tf) continue;
+    ctx.fillText(fmtTick(k * sx, sx, ex), px, T + ph + 0.3 * tf);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let k = Math.ceil(y0 / sy); k * sy <= y1; k++) {
+    const py = Y(k * sy);
+    if (py - T < 1.3 * tf || T + ph - py < 1.3 * tf) continue;
+    ctx.fillText(fmtTick(k * sy, sy, ey), L - 0.35 * tf, py);
+  }
+
+  // the curves
+  const E = envs(), va = vAxis(), lw = Math.max(2.4, fs * 0.15);
+  ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
+  for (const c of state.curves) {
+    if (!c.fn || c.hidden) continue;
+    ctx.strokeStyle = colorOf(c); ctx.lineWidth = lw; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (c.parsed.kind === 'implicit') { drawImplicit(c, E, geom); continue; }
+    const yAt = curveFn(c, E, va);
+    ctx.beginPath();
+    const n = Math.ceil(pw);
+    let down = false, prev = 0;
+    for (let k = 0; k <= n; k++) {
+      const x = x0 + (x1 - x0) * k / n, y = yAt(x);
+      if (!isFinite(y)) { down = false; continue; }
+      const py = Math.max(-1e5, Math.min(1e5, Y(y)));
+      if (down && Math.abs(py - prev) > 1.5 * ph && (prev < T || prev > T + ph) && (py < T || py > T + ph)) down = false; // an asymptote: do not join
+      if (down) ctx.lineTo(X(x), py); else ctx.moveTo(X(x), py);
+      down = true; prev = py;
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // axis names, with the power of ten and the unit: x [nm], R [×10³ Ω]
+  const xv = axisVar(), xu = unitStr(xv);
+  const tag = (E10, u) => (E10 && u ? ` [${powTen(E10)} ${u}]` : u ? ` [${u}]` : E10 ? ` ${powTen(E10)}` : '');
+  const label = (txt, x, y) => { if (!txt) return 0; ctx.font = `${tf}px system-ui, "Segoe UI", sans-serif`; ctx.fillStyle = col.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(txt, x, y); return ctx.measureText(txt).width; };
+  const xAxisY = y0 <= 0 && 0 <= y1 ? Y(0) : T + ph, xny = Math.min(T + ph - 0.3 * fs, xAxisY - 0.3 * fs);
+  ctx.font = `${tf}px system-ui, "Segoe UI", sans-serif`;
+  const xt = tag(ex, xu), xtw = xt ? ctx.measureText(xt).width : 0;
+  drawName(xv, L + pw - 0.35 * fs - xtw, xny, 1.1 * fs, 'right', col.ink);
+  label(xt, L + pw - 0.35 * fs - xtw, xny);
+  const yAxisX = x0 <= 0 && 0 <= x1 ? X(0) : L, ynx = Math.max(L + 0.35 * fs, yAxisX + 0.35 * fs);
+  const vis = state.curves.filter(c => c.fn && !c.hidden);
+  const vnames = [...new Set(vis.map(c => (c.parsed.kind === 'implicit' ? yVarOf() : c.parsed.lhs || 'y')))];
+  const ynw = vnames.length === 1 ? drawName(vnames[0], ynx, T + 1.15 * fs, 1.1 * fs, 'left', col.ink) : 0;
+  label(tag(ey, va.label), ynx + ynw, T + 1.15 * fs);
+
+  // the reading under the pointer (curves y(x))
+  if (state.hover != null && state.hover >= x0 && state.hover <= x1) {
+    const hx = state.hover, px = X(hx);
+    ctx.save();
+    ctx.strokeStyle = col.muted; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, T); ctx.lineTo(px, T + ph); ctx.stroke(); ctx.setLineDash([]);
+    const rows = [{ name: xv, v: hx, u: xu, color: col.ink }];
+    for (const c of vis) {
+      if (c.parsed.kind === 'implicit') continue;
+      const y = curveFn(c, E, va)(hx);
+      rows.push({ name: c.parsed.lhs || 'y', v: y, u: c.complete ? va.label : (va.labelOnly ? va.label : ''), color: colorOf(c) });
+      if (isFinite(y) && y >= y0 && y <= y1) {
+        ctx.fillStyle = colorOf(c); ctx.strokeStyle = col.bg; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(px, Y(y), 0.28 * fs, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+      }
+    }
+    if (rows.length > 1) {
+      ctx.font = `600 ${tf}px system-ui, "Segoe UI", sans-serif`;
+      const lh = 1.15 * tf, texts = rows.map(r => ' = ' + fmt(r.v) + (r.u ? ' ' + r.u : ''));
+      const bw = Math.max(...texts.map(t => ctx.measureText(t).width)) + 2.6 * tf, bh = rows.length * lh + 0.6 * tf;
+      let bx = px + 0.6 * fs; if (bx + bw > L + pw) bx = px - 0.6 * fs - bw;
+      const by = T + 0.4 * fs;
+      ctx.fillStyle = col.bg; ctx.globalAlpha = 0.92; ctx.fillRect(bx, by, bw, bh); ctx.globalAlpha = 1;
+      ctx.strokeStyle = col.line; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+      rows.forEach((r, i) => {
+        const yy = by + 0.3 * tf + (i + 0.8) * lh;
+        const w = drawName(r.name, bx + 0.4 * tf, yy, tf, 'left', r.color);
+        ctx.font = `600 ${tf}px system-ui, "Segoe UI", sans-serif`; ctx.fillStyle = r.color; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        ctx.fillText(texts[i], bx + 0.4 * tf + w, yy);
+      });
+    }
+    ctx.restore();
+  }
+
+  // the typed axis ends and the zoom buttons sit around the plot
+  const place = (el, x, y, alignRight) => { el.style.left = (alignRight ? x - el.offsetWidth : x) + 'px'; el.style.top = y + 'px'; };
+  const eh = ends.x0.offsetHeight;
+  place(ends.x0, L - 0.25 * tf, T + ph + 0.1 * tf, false);
+  place(ends.x1, L + pw + 0.25 * tf, T + ph + 0.1 * tf, true);
+  place(ends.y1, L - 0.2 * tf, T - eh / 2 + 0.1 * tf, true);
+  place(ends.y0, L - 0.2 * tf, T + ph - eh / 2, true);
+  for (const k of ['x0', 'x1', 'y0', 'y1']) if (document.activeElement !== ends[k]) { ends[k].value = fmtEnd(state.view[k], k[0] === 'x' ? x1 - x0 : y1 - y0); ends[k].classList.remove('bad'); }
+  toolsEl.style.left = (L + pw + 0.45 * fs) + 'px'; toolsEl.style.top = T + 'px';
+  saveLater();
+}
+
+function setView(k, v) {
+  const nv = { ...state.view, [k]: v };
+  if (!(nv.x1 > nv.x0) || !(nv.y1 > nv.y0)) { if (ends[k]) ends[k].classList.add('bad'); return false; }
+  state.view = nv; draw(); return true;
+}
+for (const [k, el] of Object.entries(ends)) {
+  el.addEventListener('change', () => { try { setView(k, valueOf(el.value)); } catch { el.classList.add('bad'); } });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); if (e.key === 'Escape') { el.value = fmtIn(state.view[k]); el.blur(); } });
+  el.addEventListener('focus', () => el.select());
+}
+
+// y-range that shows the curves over the present x-range (ignoring spikes near asymptotes)
+function sampleYs(curves) {
+  const E = envs(), va = vAxis(), ys = [];
+  const { x0, x1 } = state.view;
+  for (const c of curves) {
+    if (!c.fn || c.hidden || c.parsed.kind !== 'explicit') continue;
+    const yAt = curveFn(c, E, va);
+    for (let k = 0; k <= 400; k++) { const y = yAt(x0 + (x1 - x0) * k / 400); if (isFinite(y)) ys.push(y); }
+  }
+  return ys.sort((a, b) => a - b);
+}
+function fitY() {
+  const ys = sampleYs(state.curves);
+  if (!ys.length) {
+    // implicit curves only: same scale on both axes around the middle
+    if (hasImplicit()) { const { x0, x1, y0, y1 } = state.view, { pw, ph } = geom, cy = (y0 + y1) / 2, h = (x1 - x0) * ph / pw; state.view = { ...state.view, y0: cy - h / 2, y1: cy + h / 2 }; draw(); }
+    return;
+  }
+  let lo = ys[Math.floor(ys.length * 0.02)], hi = ys[Math.ceil(ys.length * 0.98) - 1];
+  if (hi - lo < 1e-12 * Math.max(1, Math.abs(hi))) { const d = Math.abs(hi) * 0.5 || 1; lo -= d; hi += d; }
+  const pad = (hi - lo) * 0.1;
+  state.view = { ...state.view, y0: lo - pad, y1: hi + pad };
+  draw();
+}
+// after a new equation: refit only when the new curve is hardly visible
+function fitIfLost(c) {
+  if (c.parsed && c.parsed.kind === 'implicit') return;
+  const ys = sampleYs([c]);
+  const { y0, y1 } = state.view;
+  const inside = ys.filter(y => y >= y0 && y <= y1).length;
+  if (!ys.length || inside < 0.15 * ys.length) fitY();
+}
+function zoomAt(px, py, fx, fy) {
+  const v = state.view, { L, T, pw, ph } = geom;
+  const xv = v.x0 + (px - L) / pw * (v.x1 - v.x0), yv = v.y1 - (py - T) / ph * (v.y1 - v.y0);
+  state.view = { x0: xv - (xv - v.x0) * fx, x1: xv + (v.x1 - xv) * fx, y0: yv - (yv - v.y0) * fy, y1: yv + (v.y1 - yv) * fy };
+  draw();
+}
+toolsEl.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const { L, T, pw, ph } = geom;
+  if (b.dataset.t === 'in') zoomAt(L + pw / 2, T + ph / 2, 0.7, 0.7);
+  if (b.dataset.t === 'out') zoomAt(L + pw / 2, T + ph / 2, 1 / 0.7, 1 / 0.7);
+  if (b.dataset.t === 'fit') fitY();
+  if (b.dataset.t === 'home') { state.view = { x0: START.x[0], x1: START.x[1], y0: START.y[0], y1: START.y[1] }; draw(); }
+  if (b.dataset.t === 'theme') { state.themeChosen = true; setTheme(state.theme === 'dark' ? 'light' : 'dark'); }
+});
+function setTheme(t) { state.theme = t === 'dark' ? 'dark' : 'light'; document.body.dataset.theme = state.theme; renderCurves(); draw(); }
+
+// pan with one finger, pen or mouse; pinch with two; the wheel zooms (Shift: only across, Alt: only up/down)
+const pts = new Map();
+let drag = null;
+const local = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+const baseline = () => { drag = { view: { ...state.view }, pts: new Map([...pts].map(([k, v]) => [k, { ...v }])) }; };
+cv.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  cv.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId, local(e)); baseline();
+  state.hover = null; cv.classList.add('dragging'); closePop();
+});
+cv.addEventListener('pointermove', e => {
+  if (!pts.has(e.pointerId)) {
+    if (e.pointerType === 'touch') return;
+    const q = local(e), { L, T, pw, ph } = geom;
+    state.hover = q.x >= L && q.x <= L + pw && q.y >= T && q.y <= T + ph ? state.view.x0 + (q.x - L) / pw * (state.view.x1 - state.view.x0) : null;
+    draw(); return;
+  }
+  pts.set(e.pointerId, local(e));
+  const v = drag.view, { L, T, pw, ph } = geom, ids = [...pts.keys()];
+  if (ids.length === 1) {
+    const a = drag.pts.get(ids[0]), b = pts.get(ids[0]);
+    if (!a) return;
+    const dx = (b.x - a.x) / pw * (v.x1 - v.x0), dy = (b.y - a.y) / ph * (v.y1 - v.y0);
+    state.view = { x0: v.x0 - dx, x1: v.x1 - dx, y0: v.y0 + dy, y1: v.y1 + dy };
+  } else {
+    const [i, j] = ids, a0 = drag.pts.get(i), a1 = drag.pts.get(j), b0 = pts.get(i), b1 = pts.get(j);
+    if (!a0 || !a1) return;
+    const s = Math.hypot(a1.x - a0.x, a1.y - a0.y) / Math.max(1, Math.hypot(b1.x - b0.x, b1.y - b0.y));
+    const ca = { x: (a0.x + a1.x) / 2, y: (a0.y + a1.y) / 2 }, cb = { x: (b0.x + b1.x) / 2, y: (b0.y + b1.y) / 2 };
+    const xv = v.x0 + (ca.x - L) / pw * (v.x1 - v.x0), yv = v.y1 - (ca.y - T) / ph * (v.y1 - v.y0);
+    const w = (v.x1 - v.x0) * s, h = (v.y1 - v.y0) * s;
+    const nx0 = xv - (cb.x - L) / pw * w, ny1 = yv + (cb.y - T) / ph * h;
+    state.view = { x0: nx0, x1: nx0 + w, y0: ny1 - h, y1: ny1 };
+  }
+  draw();
+});
+const lift = e => { if (!pts.delete(e.pointerId)) return; baseline(); if (!pts.size) cv.classList.remove('dragging'); };
+cv.addEventListener('pointerup', lift);
+cv.addEventListener('pointercancel', lift);
+cv.addEventListener('pointerleave', () => { if (!pts.size && state.hover != null) { state.hover = null; draw(); } });
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f = Math.exp(e.deltaY * (e.deltaMode ? 0.05 : 0.0015)), q = local(e);
+  zoomAt(q.x, q.y, e.altKey ? 1 : f, e.shiftKey ? 1 : f);
+}, { passive: false });
+cv.addEventListener('dblclick', fitY);
+
+// ============================================================================ saved with the board page
+// In DTUwrite the board keeps this graph's state with the page (and sends it to students): the plugin
+// says it is ready, gets back what was saved (or nothing), and from then on reports its changes.
+const inFrame = window.parent !== window;
+let hostAnswered = false, lastSaved = '', saveTimer = 0;
+function snapshot() {
+  const keep = new Set([...usedNames(), axisVar(), ...(hasImplicit() ? [yVarOf()] : [])]);
+  const params = {};
+  for (const [n, P] of state.params) if (keep.has(n)) params[n] = { v: P.v, min: P.min, max: P.max, set: P.set, slider: P.slider, note: P.note || undefined, unit: P.unit || undefined };
+  return {
+    v: 1, curves: state.curves.filter(c => c.src).map(c => ({ src: c.src, color: c.color, hidden: c.hidden || undefined })),
+    params, xVar: state.xVar || undefined, yVar: state.yVar || undefined, yUnit: state.yUnit || undefined,
+    view: state.view, theme: state.themeChosen ? state.theme : undefined,
+  };
+}
+function saveLater() {
+  if (!inFrame || !hostAnswered) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const s = JSON.stringify(snapshot());
+    if (s === lastSaved) return;
+    lastSaved = s;
+    window.parent.postMessage({ type: 'dtuwrite-plugin-state', plugin: 'graph-viewer', state: JSON.parse(s) }, '*');
+  }, 600);
+}
+function restore(st) {
+  if (!st || typeof st !== 'object') return;
+  state.playing.clear();
+  if (st.params && typeof st.params === 'object') {
+    for (const [n, p] of Object.entries(st.params)) {
+      if (!p || !isFinite(+p.v)) continue;
+      state.params.set(n, { v: +p.v, min: isFinite(+p.min) ? +p.min : -2, max: isFinite(+p.max) ? +p.max : 2, set: !!p.set, slider: p.slider !== false, note: p.note || '', unit: p.unit || '' });
+    }
+  }
+  if (Array.isArray(st.curves)) {
+    state.curves = [];
+    for (const c of st.curves) {
+      const src = typeof c === 'string' ? c : c && c.src;
+      if (typeof src !== 'string') continue;
+      for (const line of curvesFromLatex(src)) {
+        const cv2 = addCurve(line, { quiet: true });
+        if (c.color && PALETTE.light[c.color]) cv2.color = c.color;
+        cv2.hidden = !!c.hidden;
+      }
+    }
+  }
+  if (typeof st.xVar === 'string') state.xVar = st.xVar;
+  if (typeof st.yVar === 'string') state.yVar = st.yVar;
+  if (typeof st.yUnit === 'string') state.yUnit = st.yUnit;
+  const v = st.view;
+  const okView = v && [v.x0, v.x1, v.y0, v.y1].every(q => isFinite(+q)) && +v.x1 > +v.x0 && +v.y1 > +v.y0;
+  if (okView) state.view = { x0: +v.x0, x1: +v.x1, y0: +v.y0, y1: +v.y1 };
+  if (st.theme === 'dark' || st.theme === 'light') { state.themeChosen = true; state.theme = st.theme; document.body.dataset.theme = st.theme; }
+  renderAll();
+  if (!okView) { if (state.curves.some(c => c.fn && c.parsed.kind === 'explicit')) fitY(); else if (hasImplicit()) fitY(); }
+}
+
+// ============================================================================ start
+function renderAll() { analyse(); renderCurves(); renderPanel(); draw(); }
+function readHash() {
+  if (!/^#./.test(location.hash)) return;
+  const q = new URLSearchParams(location.hash.slice(1));
+  if (q.getAll('eq').length) START.curves = q.getAll('eq');
+  const pair = k => { const v = (q.get(k) || '').split(',').map(Number); return v.length === 2 && v.every(isFinite) && v[1] > v[0] ? v : null; };
+  START.x = pair('x') || START.x; START.y = pair('y') || START.y;
+  if (q.get('theme')) START.theme = q.get('theme');
+  state.theme = START.theme === 'dark' ? 'dark' : 'light';
+  state.view = { x0: START.x[0], x1: START.x[1], y0: START.y[0], y1: START.y[1] };
+}
+try { readHash(); } catch { /* a sandboxed frame has no address */ }
+document.body.dataset.theme = state.theme;
+for (const s of START.curves) addCurve(s, { quiet: true });
+new ResizeObserver(() => draw()).observe(box);
+// messages from DTUwrite (or another page that embeds this):
+//   { type: 'dtuwrite-plot', latex: 'y = …' }            one more curve (one per line of the LaTeX)
+//   { type: 'dtuwrite-theme', theme: 'dark' | 'light' }   the board colour (unless ◐ was pressed)
+//   { type: 'dtuwrite-plugin-restore', state }            the saved state (or null) after 'ready'
+window.addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type === 'dtuwrite-plot' && typeof d.latex === 'string') {
+    let last = null;
+    for (const line of curvesFromLatex(d.latex)) last = addCurve(line, { quiet: true });
+    renderAll();
+    if (last && last.fn) fitIfLost(last);
+  }
+  if (d.type === 'dtuwrite-theme' && !state.themeChosen) setTheme(d.theme);
+  if (d.type === 'dtuwrite-plugin-restore') { if (d.state) restore(d.state); hostAnswered = true; lastSaved = JSON.stringify(snapshot()); saveLater(); }
+});
+window.graphViewer = { state, parseEquation, parseUnit, tokenize, valueOf, addCurve, setSource, renderAll, fitY, setTheme, snapshot, restore, vAxis, katexReady: renderAll };
+renderAll();
+if (inFrame) window.parent.postMessage({ type: 'dtuwrite-plugin-ready', plugin: 'graph-viewer' }, '*');
+</script>
+</body>
+</html>
