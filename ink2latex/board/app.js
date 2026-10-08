@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-07.1955';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-07.1955';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-07.1955';
-import { initSend } from './send.js?v=2026-10-07.1955';
-import { initStudent } from './student.js?v=2026-10-07.1955';
-import { initAssign } from './assign.js?v=2026-10-07.1955';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-07.1955';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-07.1955';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-07.1955';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-07.1955';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke } from './ink.js?v=2026-10-08.0734';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0734';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0734';
+import { initSend } from './send.js?v=2026-10-08.0734';
+import { initStudent } from './student.js?v=2026-10-08.0734';
+import { initAssign } from './assign.js?v=2026-10-08.0734';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0734';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0734';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0734';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0734';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -745,18 +745,20 @@ applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the ke
     { label: () => `${state.cur + 1}/${state.pages.length}`, tip: 'Page (▦ Pages → Overview)' },
     { icon: '▶', tip: 'Next page (→)', run: () => state.cur < state.pages.length - 1 && gotoPage(state.cur + 1) },
     null,
-    { icon: '▤', tip: 'Transcription panel (in full screen: a floating box; 📌 docks it at the right)', run: () => togglePanelAnywhere(), on: () => (document.body.classList.contains('fs') ? (settings.fsPanel || 'off') !== 'off' : !!settings.panel) },
+    { icon: '▤', tip: 'Transcription panel (in full screen: a floating box; 📌 docks it at the right)', run: () => togglePanelAnywhere(), on: () => (document.body.classList.contains('fs') ? fsPanelMode() !== 'off' : !!settings.panel) },
   ],
   onChange: () => applyFsPanel(),
 });
 // ---- the panel in full screen: off, a floating box you can drag by its head, or docked at the right
+// until chosen in full screen, the panel there follows the normal one: shown → floating
+const fsPanelMode = () => settings.fsPanel || (settings.panel ? 'float' : 'off');
 function togglePanelAnywhere() {
-  if (fullscreen.active()) settings.fsPanel = (settings.fsPanel || 'off') === 'off' ? 'float' : 'off';
+  if (fullscreen.active()) settings.fsPanel = fsPanelMode() === 'off' ? 'float' : 'off';
   else { settings.panel = !settings.panel; applyPanel(); }
   saveSettings(); applyFsPanel();
 }
 function applyFsPanel() {
-  const m = settings.fsPanel || 'off', p = $('#panel');
+  const m = fsPanelMode(), p = $('#panel');
   document.body.classList.toggle('fs-panel-float', m === 'float');
   document.body.classList.toggle('fs-panel-dock', m === 'dock');
   const pos = settings.fsPanelPos;
@@ -767,7 +769,7 @@ function applyFsPanel() {
   try { fullscreen.sync(); } catch { /* not set up yet */ }
   window.dispatchEvent(new Event('resize'));
 }
-$('#panelPin').addEventListener('click', () => { settings.fsPanel = settings.fsPanel === 'dock' ? 'float' : 'dock'; saveSettings(); applyFsPanel(); });
+$('#panelPin').addEventListener('click', () => { settings.fsPanel = fsPanelMode() === 'dock' ? 'float' : 'dock'; saveSettings(); applyFsPanel(); });
 $('#panelFsClose').addEventListener('click', () => { settings.fsPanel = 'off'; saveSettings(); applyFsPanel(); });
 // drag the floating panel by its head
 $('#panelHead').addEventListener('pointerdown', e => {
@@ -1229,7 +1231,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-07.1955');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0734');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {

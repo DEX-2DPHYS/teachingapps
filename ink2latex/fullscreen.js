@@ -20,6 +20,7 @@ body.fs #fsBar, body.fs-tools #fsBar { display: flex; }
 #fsBar button { width: 40px; height: 40px; padding: 0; border-radius: 9px; border: 1px solid transparent; background: transparent;
   color: var(--text, #222); font: 18px/1 system-ui, sans-serif; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 #fsBar button:hover { background: var(--btn-hover, #ececea); }
+#fsBar button:focus:not(:focus-visible) { outline: none; }
 #fsBar button.on { background: var(--accent, #1f5fd1); color: #fff; }
 #fsBar hr { border: 0; border-top: 1px solid var(--line, #ddd); margin: 2px 4px; }
 #fsTab { display: none; position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 260; width: 64px; height: 22px; padding: 0;
@@ -60,7 +61,7 @@ export function initFullscreen({ toolbar, hide = [], tools = [], menuOpen = () =
     b.textContent = t.icon;
     b.dataset.i = i;
     b.setAttribute('aria-label', typeof t.tip === 'function' ? t.tip() : t.tip);
-    b.addEventListener('click', () => { hideTip(); t.run(); sync(); });
+    b.addEventListener('click', () => { hideTip(); t.run(); sync(); b.blur(); }); // no focus frame left on it
     bar.appendChild(b);
   });
   const tab = document.createElement('button');
