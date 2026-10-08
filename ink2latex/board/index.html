@@ -6,7 +6,7 @@
 <title>DTUwrite</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fd1'/%3E%3Cpath d='M7 23 Q12 6 16 16 T25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-08.0739">
+<link rel="stylesheet" href="style.css?v=2026-10-08.0752">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -98,7 +98,8 @@
           <label class="check" title="About 10 s after you stop writing, the whole page is interpreted in context (only when something changed)"><input type="checkbox" id="autoInterp"> Interpret page automatically</label>
           <label class="check" title="When the page interpretation finds one expression split over several regions, group them and read them again together. Only the grouping changes, so this is safe for assessment."><input type="checkbox" id="autoMerge"> Group split expressions automatically</label>
           <label class="check" title="Off: context corrections are suggested on the cards (assessment use). On: they are applied, with an 'original' button to go back (whiteboard use)."><input type="checkbox" id="autoAccept"> Apply context corrections automatically</label>
-          <label class="check" title="'= □' (an empty box) or '= ?' after an expression: calculated with math.js; '= □ AI' / '= ?AI': worked out by the AI"><input type="checkbox" id="autoEval"> Answer "= □" / "= ?" automatically</label>
+          <label class="check" title="A circle drawn round an equals sign (⊜) after an expression: calculated (math.js, with units); ⊜ followed by AI: worked out by the AI, with steps"><input type="checkbox" id="autoEval"> Answer ⊜ automatically</label>
+          <label class="check" title="Off: '= ?' and a drawn empty box are ordinary writing, e.g. a question for the students. On: they are answered too, as before."><input type="checkbox" id="oldTriggers"> Also answer "= ?" and drawn boxes (old way)</label>
           <h4>Reading accuracy</h4>
           <label class="check" title="Each region is sent at the page's own scale (letters keep their size relative to the rest of the page) with the neighbouring writing shown in grey. Off: the classic tight crop, enlarged to fill the image."><input type="checkbox" id="readContext"> Read regions in their page (true scale, neighbours in grey)</label>
           <label class="check" title="Ink on the same written line joins one region across wider gaps, so an equation written with spaces is read as one expression rather than in pieces. Applies to new writing."><input type="checkbox" id="lineGroup"> Group whole lines</label>
@@ -158,6 +159,7 @@
     </div>
   <span class="bar-spacer"></span>
   <span id="toolCost" class="dim small" title="Estimated AI cost this session"></span>
+  <button id="fsTopBtn" class="mbtn" title="Full screen: the page fills the screen with the tool bar at the left; the menu comes back at the top edge (or the ▾ tab). Esc leaves.">⛶</button>
   <button id="panelToggle" class="mbtn" title="Show / hide the transcription panel">▤<span class="lbl"> Panel</span></button>
 
   <!-- the old tool buttons: hidden, their handlers still run (the floating tool bar and the keys use them) -->
@@ -233,6 +235,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-08.0739"></script>
+<script type="module" src="app.js?v=2026-10-08.0752"></script>
 </body>
 </html>

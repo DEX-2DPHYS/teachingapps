@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-08.0739';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0739';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0739';
-import { initSend } from './send.js?v=2026-10-08.0739';
-import { initStudent } from './student.js?v=2026-10-08.0739';
-import { initAssign } from './assign.js?v=2026-10-08.0739';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0739';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0739';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0739';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0739';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-08.0752';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0752';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0752';
+import { initSend } from './send.js?v=2026-10-08.0752';
+import { initStudent } from './student.js?v=2026-10-08.0752';
+import { initAssign } from './assign.js?v=2026-10-08.0752';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0752';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0752';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0752';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0752';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -884,6 +884,7 @@ function applyTools() {
 }
 applyTools();
 $('#fsBtn').addEventListener('click', () => { $('#viewMenu').hidden = true; fullscreen.toggle(); });
+$('#fsTopBtn').addEventListener('click', () => fullscreen.toggle()); // the same, at the right end of the menu line
 $('#aboutBtn').addEventListener('click', openAboutDialog);
 // no long-press menu on the board (tablets), except in a text box being typed in
 $('#boardWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
@@ -1245,7 +1246,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0739');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0752');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1430,9 +1431,48 @@ board.onDoubleTap = p => {
 // "= □" or "= ?"      -> calculator: the model translates to a math.js expression using values from
 //                        the page, math.js computes (reliable arithmetic and units).
 // "= □ AI" or "= ?AI" -> the AI (Opus, high effort) works it out and shows key steps.
+// ⊜, a circle drawn round an equals sign: "work this out". Recognised from the strokes themselves: a
+// closed loop whose inside holds one or two short, flat strokes (the "=") and nothing else. Cached per
+// region (its stroke ids).
+function calcMarkOf(b, page = pageOf(b)) {
+  const key = b.strokeIds.join(',');
+  if (b._mark && b._mark.key === key) return b._mark.val;
+  let val = null;
+  for (const loop of strokesOf(b, page)) {
+    if (loop.fill || loop.pts.length < 8) continue;
+    const lb = strokeBox(loop), w = lb.x1 - lb.x0, h = lb.y1 - lb.y0;
+    if (w < 12 || h < 8 || w / h > 3.4 || h / w > 2) continue;
+    const p0 = loop.pts[0], pn = loop.pts[loop.pts.length - 1];
+    if (Math.hypot(p0[0] - pn[0], p0[1] - pn[1]) > 0.35 * Math.max(w, h)) continue; // not closed
+    let L = 0;
+    for (let i = 1; i < loop.pts.length; i++) L += Math.hypot(loop.pts[i][0] - loop.pts[i - 1][0], loop.pts[i][1] - loop.pts[i - 1][1]);
+    if (L < 2.4 * Math.max(w, h)) continue; // it does not go round
+    const inside = page.strokes.filter(s => s !== loop && !s.fill && s.pts.filter(p => insidePolygon(p, loop.pts)).length >= 0.6 * s.pts.length);
+    if (!inside.length || inside.length > 2) continue;
+    const dims = inside.map(s => { const sb = strokeBox(s); return { w: sb.x1 - sb.x0, h: sb.y1 - sb.y0, cy: (sb.y0 + sb.y1) / 2 }; });
+    const flat = inside.length === 2
+      ? dims.every(d => d.w >= 0.22 * w && d.h <= 0.5 * d.w) && Math.abs(dims[0].cy - dims[1].cy) >= 0.1 * h // two bars, one above the other
+      : dims[0].w >= 0.3 * w && dims[0].h <= 0.9 * dims[0].w; // "=" drawn in one go
+    if (!flat) continue;
+    val = { loop: loop.id, bars: inside.map(s => s.id), box: lb };
+    break;
+  }
+  b._mark = { key, val };
+  return val;
+}
+// what is sent for a ⊜: the expression before it, with "= ?" (or "= ?AI") as the evaluate and solve tasks know it
+function markExpr(src, mode) {
+  const s = String(src).replace(/\\(begin|end)\{aligned\}|&|\\\\/g, ' ')
+    .replace(/(\s|\\[,;:! ]|\\text\{\s*A\.?I\.?\s*\}|\bA\.?I\.?|⊜|\\(ominus|odot|circ|bigcirc|circledcirc|oslash|circeq|eqcirc|square|Box)\b|\(\s*=\s*\)|=|\?|\$)+$/g, '');
+  return s + (mode === 'ai' ? ' = ?AI' : ' = ?');
+}
 function questionOf(b) {
   const r = b.result;
   if (!r || !['math', 'mixed', 'text'].includes(r.kind)) return null;
+  // ⊜ (and "⊜ AI"): the circle is found in the strokes; "AI" after it in the reading
+  if (calcMarkOf(b)) return /A\.?I\.?[\s}$]*$/i.test(String(sourceOf(b))) ? 'ai' : 'calc';
+  // "= ?" and drawn boxes: questions for the students, unless the old way is switched on
+  if (!settings.oldTriggers) return null;
   // normalise the many ways a transcription can write the marker: \text{???}, \, spacing, \Box, □ ...
   const src = String(sourceOf(b))
     .replace(/\$/g, '')
@@ -1470,9 +1510,9 @@ function maybeEvaluate(b) {
 // "= □" / "= ?" in the writing. Automatic answers are shown only while the question is there.
 async function evaluateBlock(b, mode = questionOf(b) || 'calc', explicit = false) {
   const page = pageOf(b);
-  const expr = sourceOf(b);
+  const key = sourceOf(b), expr = calcMarkOf(b, page) ? markExpr(key, mode) : key;
   const ver = (b.ansVersion = (b.ansVersion || 0) + 1);
-  b.answer = { status: 'busy', mode, expr, explicit };
+  b.answer = { status: 'busy', mode, expr: key, explicit };
   renderAll();
   try {
     const body = mode === 'ai'
@@ -1480,10 +1520,10 @@ async function evaluateBlock(b, mode = questionOf(b) || 'calc', explicit = false
       : { task: 'evaluate', model: settings.finalModel, expr, context: contextFor(b, page), force: { num: 'numeric', sym: 'symbolic' }[mode] };
     const r = await api(body);
     if (b.ansVersion !== ver) return;
-    b.answer = { status: 'ok', mode, expr, data: r.data, ms: r.ms, explicit, model: body.model };
+    b.answer = { status: 'ok', mode, expr: key, data: r.data, ms: r.ms, explicit, model: body.model };
   } catch (err) {
     if (b.ansVersion !== ver) return;
-    b.answer = { status: 'error', mode, expr, error: err.message, explicit };
+    b.answer = { status: 'error', mode, expr: key, error: err.message, explicit };
   }
   renderAll();
   saveSoon();
@@ -1616,7 +1656,7 @@ function renderAnswers(list) {
     if (!v || v.cls === 'err') {
       el = document.createElement('button');
       el.className = 'ask-chip';
-      el.textContent = ({ ai: '= ?AI', num: '= ?N', sym: '= ?S' }[q] || '= ?') + (v ? ' ↻' : '');
+      el.textContent = (settings.oldTriggers && !calcMarkOf(b) ? ({ ai: '= ?AI', num: '= ?N', sym: '= ?S' }[q] || '= ?') : q === 'ai' ? '⊜ AI' : '⊜') + (v ? ' ↻' : '');
       el.title = v ? `${v.label}. Tap to try again.` : { ai: 'Tap: let the AI work it out', num: 'Tap: calculate a number (math.js, values from the page)', sym: 'Tap: work out a symbolic result' }[q] || 'Tap: calculate (math.js, values from the page)';
       el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); requestAnswer(b); });
     } else {
@@ -2121,7 +2161,9 @@ function regionState(b) {
   // the app's own checks (LaTeX that does not render, brackets that do not balance) always need a look;
   // the model's doubts only when a second reading did not settle them
   if (r.uncertain?.some(u => /^(The LaTeX does not render|(Round|Square) brackets do not balance)/.test(u))) return 'warn';
-  if (r.uncertain?.length && b.agreement !== 'agree') return 'warn';
+  // notes about the ⊜ itself (some models remark on the circle) are not doubts about the reading
+  const doubts = calcMarkOf(b) ? (r.uncertain || []).filter(u => !/circle|circled|⊜|loop/i.test(u)) : r.uncertain;
+  if (doubts?.length && b.agreement !== 'agree') return 'warn';
   return 'good';
 }
 const needsAttention = b => ['warn', 'bad'].includes(regionState(b));
@@ -3317,13 +3359,14 @@ viewMenu.addEventListener('change', e => {
   if (e.target.id === 'showPanel') { settings.panel = e.target.checked; saveSettings(); applyPanel(); }
 });
 
-for (const id of ['autoInterp', 'autoAccept', 'autoEval', 'autoMerge', 'readContext', 'lineGroup', 'twoReadings', 'pageCheck']) {
+for (const id of ['autoInterp', 'autoAccept', 'autoEval', 'autoMerge', 'readContext', 'lineGroup', 'twoReadings', 'pageCheck', 'oldTriggers']) {
   const el = $('#' + id);
   el.checked = settings[id];
   el.addEventListener('change', () => {
     settings[id] = el.checked; saveSettings();
     if (id === 'autoInterp') scheduleInterpret();
     if (id === 'twoReadings' || id === 'pageCheck') applyReadMode();
+    if (id === 'oldTriggers') renderAll();
   });
 }
 
