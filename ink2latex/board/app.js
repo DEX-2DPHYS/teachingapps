@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-09.1459';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-09.1459';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-09.1459';
-import { initSend } from './send.js?v=2026-10-09.1459';
-import { initStudent } from './student.js?v=2026-10-09.1459';
-import { initAssign } from './assign.js?v=2026-10-09.1459';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-09.1459';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-09.1459';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-09.1459';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-09.1459';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-09.1517';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-09.1517';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-09.1517';
+import { initSend } from './send.js?v=2026-10-09.1517';
+import { initStudent } from './student.js?v=2026-10-09.1517';
+import { initAssign } from './assign.js?v=2026-10-09.1517';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-09.1517';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-09.1517';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-09.1517';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-09.1517';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1271,8 +1271,8 @@ async function redrawSelection() {
   const st = board.selStrokes().filter(s => !s.fill);
   if (!st.length) { toast('Select a sketch or graph first (S)'); return; }
   if (settings.aiOff) { toast('The AI is off: switch it on first'); return; }
-  const box = unionBox(st.map(strokeBox)), page = curPage(), ids = st.map(s => s.id);
-  const crop = renderCrop(st, 1200);
+  const box = unionBox(board.selStrokes().map(strokeBox)), page = curPage(), ids = st.map(s => s.id); // the same area as the image the AI gets
+  const crop = renderCrop(board.selStrokes(), 1200, [], null, sketchColour);
   const model = figureModel();
   $('#redrawDlg')?.remove();
   const d = document.createElement('div');
@@ -1280,11 +1280,12 @@ async function redrawSelection() {
   d.innerHTML = `<div class="rd-box" role="dialog" aria-label="Redraw">
       <strong>Redraw</strong> <span class="dim">${esc(MODELS[model] || model)}</span>
       <div class="rd-pair"><figure><img alt="your sketch" src="data:${crop.mediaType};base64,${crop.image}"><figcaption>Your sketch</figcaption></figure>
-        <figure class="rd-new"><div class="rd-wait">Redrawing… <span class="dim">(up to a minute: the model thinks it through)</span></div><figcaption>Redrawn</figcaption></figure></div>
+        <figure class="rd-new"><figcaption>Redrawn</figcaption></figure></div>
       <div class="rd-desc dim"></div>
       <div class="rd-act"><button data-r="replace" class="primary" disabled title="The redrawing takes the sketch's place (Ctrl+Z brings the sketch back; the figure: Select → ✕)">Replace the sketch</button>
         <button data-r="beside" disabled title="Put the redrawing next to the sketch">Put it beside</button>
         <button data-r="svg" disabled>SVG ↓</button><button data-r="tikz" disabled>TikZ</button>
+        <button data-r="careful" disabled title="Ask again with the model thinking it through: closer to your sketch, but 1-5 minutes and a few cents">Redraw carefully</button>
         <button data-r="close">Cancel</button></div>
     </div>`;
   document.body.appendChild(d);
@@ -1298,11 +1299,12 @@ async function redrawSelection() {
     if (!fig) return;
     if (a === 'svg') { download('redrawn.svg', fig.svg, 'image/svg+xml'); return; }
     if (a === 'tikz') { copyText(fig.tikz, 'TikZ copied'); return; }
+    if (a === 'careful') { ask(true); return; }
     // on the page: the drawing as a figure over the sketch's area (the same crop, 16 units around it)
     const pad = 16, w = box.x1 - box.x0 + 2 * pad, h = box.y1 - box.y0 + 2 * pad;
     const x = a === 'beside' ? Math.min(board.pageW - w, box.x1 + 40) : box.x0 - pad, y = box.y0 - pad;
     try {
-      const blob = await svgToPng(fig.svg, crop.width, crop.height, THEMES[settings.board].palette.auto);
+      const blob = await svgToPng(fig.svg, crop.width, crop.height);
       const src = await storeImage(blob);
       (page.images ||= []).push({ id: newImageId(), src, x, y, w, h, bg: false });
       if (a === 'replace' && page === curPage()) { board.selectIds(ids); board.deleteSelection(); }
@@ -1311,22 +1313,49 @@ async function redrawSelection() {
       close();
     } catch (err) { toast('Could not place the drawing: ' + err.message); }
   });
-  try {
-    const r = await api({ task: 'figure', model, image: crop.image, mediaType: crop.mediaType, width: crop.width, height: crop.height, note: '' });
-    if (!open) return;
-    fig = r.data;
-    const nw = d.querySelector('.rd-new');
-    nw.querySelector('.rd-wait').outerHTML = `<img alt="redrawn" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(fig.svg)}">`;
-    d.querySelector('.rd-desc').textContent = fig.description || '';
-    d.querySelectorAll('.rd-act button[disabled]').forEach(x => { x.disabled = false; });
-  } catch (err) {
-    if (!open) return;
-    d.querySelector('.rd-wait').innerHTML = `<span class="err">Could not redraw: ${esc(err.message)}</span>`;
+  // quick first (no thinking); "Redraw carefully" asks again with the model thinking it through
+  const nw = d.querySelector('.rd-new');
+  async function ask(careful) {
+    fig = null;
+    d.querySelectorAll('.rd-act button:not([data-r=close])').forEach(x => { x.disabled = true; });
+    nw.querySelector('img, .rd-wait')?.remove();
+    nw.insertAdjacentHTML('afterbegin', `<div class="rd-wait">${careful ? 'Redrawing carefully… <span class="dim">(the model thinks it through: 1-5 minutes)</span>' : 'Redrawing…'}</div>`);
+    d.querySelector('.rd-desc').textContent = '';
+    try {
+      const r = await api({ task: 'figure', model, image: crop.image, mediaType: crop.mediaType, width: crop.width, height: crop.height, note: '', careful });
+      if (!open) return;
+      fig = r.data;
+      nw.querySelector('.rd-wait').outerHTML = `<img alt="redrawn" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(fig.svg)}">`;
+      nw.querySelector('figcaption').textContent = careful ? 'Redrawn carefully' : 'Redrawn';
+      d.querySelector('.rd-desc').textContent = fig.description || '';
+      d.querySelectorAll('.rd-act button').forEach(x => { x.disabled = x.dataset.r === 'careful' && careful; });
+    } catch (err) {
+      if (!open) return;
+      nw.querySelector('.rd-wait').innerHTML = `<span class="err">Could not redraw: ${esc(err.message)}</span>`;
+      d.querySelector('[data-r=careful]').disabled = careful;
+    }
   }
+  ask(false);
 }
-// an SVG (black ink) as a PNG in the board's ink colour, at twice the crop's size for sharp lines
-function svgToPng(svg, w, h, ink) {
-  const col = String(svg).replace(/(stroke|fill)="(black|#000|#000000)"/g, `$1="${ink}"`).replace(/(stroke|fill):\s*(black|#000|#000000)/g, `$1:${ink}`).replace(/<svg\b/, `<svg color="${ink}"`);
+// a stroke's colour as the AI sees it: the white-board pens (the black board's pastels are too pale on white)
+const sketchColour = s => THEMES.white.palette[s.color] || s.color || '#000';
+// a colour in the redrawing → the nearest pen colour, in the board's palette (black → the ink colour)
+function boardColour(c) {
+  const rgb = x => { const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(x).trim()); if (!m) return null; let h = m[1]; if (h.length === 3) h = h.replace(/./g, d => d + d); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
+  const NAMED = { black: '#000000', white: '#ffffff', red: '#ff0000', green: '#008000', blue: '#0000ff', orange: '#ffa500', purple: '#800080', teal: '#008080', yellow: '#ffff00', gray: '#808080', grey: '#808080' };
+  const v = rgb(NAMED[String(c).toLowerCase()] || c);
+  if (!v) return c;
+  let best = 'auto', bd = Infinity;
+  for (const [k, hex] of Object.entries(THEMES.white.palette)) { const p = rgb(hex), d = (p[0] - v[0]) ** 2 + (p[1] - v[1]) ** 2 + (p[2] - v[2]) ** 2; if (d < bd) { bd = d; best = k; } }
+  if (Math.max(...v) > 235 && Math.min(...v) > 235) return c; // white: a background, left alone
+  return THEMES[settings.board].palette[best];
+}
+// an SVG as a PNG in the board's colours, at twice the crop's size for sharp lines
+function svgToPng(svg, w, h) {
+  const col = String(svg)
+    .replace(/(stroke|fill|color|stop-color)="([^"]+)"/g, (m, a, c) => (c === 'none' || c.startsWith('url(') ? m : `${a}="${boardColour(c)}"`))
+    .replace(/(stroke|fill|color):\s*([#\w]+)/g, (m, a, c) => (c === 'none' ? m : `${a}:${boardColour(c)}`))
+    .replace(/<svg\b/, `<svg color="${THEMES[settings.board].palette.auto}"`);
   return new Promise((res, rej) => {
     const im = new Image();
     im.onload = () => {
@@ -1496,7 +1525,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-09.1459');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-09.1517');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1947,7 +1976,7 @@ const figureModel = () => (engineOf(settings.finalModel) === 'mistral' ? 'mistra
 async function makeFigure(b) {
   const strokes = strokesOf(b, pageOf(b));
   if (!strokes.length) return;
-  const { image, mediaType, width, height } = renderCrop(strokes, 1200);
+  const { image, mediaType, width, height } = renderCrop(strokes, 1200, [], null, sketchColour);
   b.figureBusy = true; b.figureError = null;
   renderAll();
   try {

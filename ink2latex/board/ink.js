@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize, liveShape } from './shapes.js?v=2026-10-09.1459';
+import { recognize, liveShape } from './shapes.js?v=2026-10-09.1517';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -122,7 +122,8 @@ export function insidePolygon(p, poly) {
 
 // Render strokes black-on-white into a PNG for the model.
 // labels: [{box, n}] draws numbered red region boxes (used for whole-board interpretation).
-export function renderCrop(strokes, maxDim = 1024, labels = [], area = null) {
+// colorOf (optional): a stroke's colour; without it everything is drawn in black (for reading)
+export function renderCrop(strokes, maxDim = 1024, labels = [], area = null, colorOf = null) {
   const box = area || unionBox(strokes.map(strokeBox));
   const pad = area ? 0 : 16;
   const w = box.x1 - box.x0 + 2 * pad, h = box.y1 - box.y0 + 2 * pad;
@@ -135,7 +136,11 @@ export function renderCrop(strokes, maxDim = 1024, labels = [], area = null) {
   g.fillRect(0, 0, cw, ch);
   g.setTransform(scale, 0, 0, scale, (pad - box.x0) * scale, (pad - box.y0) * scale);
   g.fillStyle = '#000';
-  for (const s of strokes) g.fill(strokePath(s));
+  for (const s of strokes) {
+    if (colorOf) { g.fillStyle = colorOf(s); g.globalAlpha = s.fill ? (s.alpha ?? 0.35) : (s.alpha ?? 1); }
+    g.fill(strokePath(s));
+  }
+  g.globalAlpha = 1;
   g.setTransform(1, 0, 0, 1, 0, 0);
   for (const { box: b, n } of labels) {
     const x = (b.x0 - box.x0 + pad) * scale - 4, y = (b.y0 - box.y0 + pad) * scale - 4;
