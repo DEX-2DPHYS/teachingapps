@@ -492,6 +492,7 @@ body[data-board="black"] .ai-switch:not(.off) { background: rgba(46,125,50,.25);
 #redrawDlg .rd-act { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 #redrawDlg .rd-act .primary { background: #1f5fd1; color: #fff; border-color: #1f5fd1; }
 #redrawDlg .err { color: #c62828; }
+.model-use { margin: -4px 0 6px 52px; line-height: 1.3; }
 .ai-off-note { margin: 0 0 8px; padding: 7px 10px; border-radius: 8px; background: #f2f2f2; border: 1px solid #ccc; font-size: 13px; color: #444; }
 .ai-off-note button { margin-left: 6px; padding: 1px 9px; }
 .plugin-list { display: flex; flex-direction: column; gap: 2px; margin: 0 0 2px 18px; padding-left: 6px; border-left: 2px solid var(--line); }

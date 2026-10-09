@@ -1,16 +1,16 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-09.1452';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-09.1452';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-09.1452';
-import { initSend } from './send.js?v=2026-10-09.1452';
-import { initStudent } from './student.js?v=2026-10-09.1452';
-import { initAssign } from './assign.js?v=2026-10-09.1452';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-09.1452';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-09.1452';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-09.1452';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-09.1452';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-09.1459';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-09.1459';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-09.1459';
+import { initSend } from './send.js?v=2026-10-09.1459';
+import { initStudent } from './student.js?v=2026-10-09.1459';
+import { initAssign } from './assign.js?v=2026-10-09.1459';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-09.1459';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-09.1459';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-09.1459';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-09.1459';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1496,7 +1496,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-09.1452');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-09.1459');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1518,7 +1518,10 @@ async function aiFetch(method, body) {
 async function api(body) {
   const res = await aiFetch('POST', JSON.stringify(body));
   const j = await res.json().catch(() => ({ error: res.statusText }));
-  if (!res.ok) throw new Error(j.error || res.statusText);
+  if (!res.ok) {
+    if (/unknown model or task/.test(j.error || '')) throw new Error(`${MODELS[body.model] || body.model} is not known to this DTUwrite server yet: close the DTUwrite window and start it again`);
+    throw new Error(j.error || res.statusText);
+  }
   state.cost += j.cost || 0;
   state.calls++;
   const e = engineOf(body.model);
@@ -3788,13 +3791,34 @@ for (const id of ['liveModel', 'finalModel']) {
     .map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
   sel.innerHTML = Object.entries(ENGINES).map(([e, label]) => `<optgroup label="${label}" data-engine="${e}">${opts(e)}</optgroup>`).join('');
   sel.value = settings[id];
-  sel.addEventListener('change', () => { settings[id] = sel.value; saveSettings(); renderAll(); });
+  sel.addEventListener('change', () => { settings[id] = sel.value; saveSettings(); renderModelSummary(); renderAll(); toast(`${id === 'liveModel' ? 'Live' : 'Final'}: ${MODELS[sel.value]}`); });
 }
+renderModelSummary();
 // grey out an engine whose API key is not set on the server
 // (in the cloud this waits for the 📡 Send login: checkEngines runs again after signing in)
+let serverModels = null;
+const NEWER_MODELS = ['mistral-large-4']; // added 2026-10-09: unknown to an AI server started before
+// Settings → AI and the AI menu: which model does what
+function renderModelSummary() {
+  const n = k => MODELS[k] || k;
+  const el = document.getElementById('aiModelsNow');
+  if (el) el.innerHTML = `Live: <b>${esc(n(settings.liveModel))}</b> · Final: <b>${esc(n(settings.finalModel))}</b>`;
+  const h = document.getElementById('heavyModelNow');
+  if (h) h.textContent = `= ⊜ AI: ${n(heavyModel())} · Redraw: ${n(figureModel())}`;
+}
 function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
   if (e.error) throw new Error(e.error);
   coreFeatures = e.features || {}; // an older AI core reports none: no grey context, no page reading
+  // models this AI server knows (an older one does not say: then the models added since are left out)
+  serverModels = new Set(e.models || Object.keys(MODELS).filter(k => !NEWER_MODELS.includes(k)));
+  for (const id of ['liveModel', 'finalModel']) for (const o of $('#' + id).querySelectorAll('option')) {
+    const ok = serverModels.has(o.value);
+    o.disabled = !ok;
+    o.textContent = MODELS[o.value] + (ok ? '' : ' (restart DTUwrite to use it)');
+  }
+  const missing = ['liveModel', 'finalModel'].filter(id => !serverModels.has(settings[id]));
+  if (missing.length) toast(`${missing.map(id => MODELS[settings[id]]).join(' and ')} is not known to this DTUwrite server yet: close the DTUwrite window and start it again from the desktop icon`);
+  renderModelSummary();
   for (const id of ['liveModel', 'finalModel']) {
     for (const g of $('#' + id).querySelectorAll('optgroup')) {
       const on = !!e[g.dataset.engine];
