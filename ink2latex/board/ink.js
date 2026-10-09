@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize } from './shapes.js?v=2026-10-08.0837';
+import { recognize, liveShape } from './shapes.js?v=2026-10-09.1452';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -478,14 +478,17 @@ export class Board {
     const st = this.stats; // for the diagnostics panel (Ctrl+Shift+D)
     st.events++; st.points += events.length || 1; st.types[e.pointerType] = (st.types[e.pointerType] || 0) + 1;
     st.lastEventTs = e.timeStamp; st.pressure = e.pressure;
+    let livePen = null;
     for (const ev of (events.length ? events : [e])) {
       const p = this.point(ev);
       if (a.lasso) { a.lasso.push(p); continue; }
       if (a.eraser) { this.eraseAt(p); continue; }
-      if (a.stroke.shape) continue; // already snapped: ignore further movement
+      if (a.stroke.shape) { livePen = p; continue; } // already snapped: the pen now shapes it (below)
       a.stroke.pts.push(p);
       if (Math.hypot(p[0] - a.holdAt[0], p[1] - a.holdAt[1]) > HOLD_TOL) this.armHold(p);
     }
+    // a snapped shape follows the pen until it is lifted (line end, rectangle corner, circle size...)
+    if (livePen && a.live) a.stroke.pts = a.live(livePen);
     // erasing changes the page; writing and lassoing only the layer on top
     if (a.eraser) this.request(); else this.requestLive();
   }
@@ -652,6 +655,29 @@ export class Board {
     this.request();
   }
 
+  // copies of strokes (duplicate, paste): new ids, moved by dx, dy; one undo step; then selected.
+  // A fill keeps its frame: its frame ids point to the copies of the framing strokes.
+  addCopies(list, dx = 0, dy = 0) {
+    const idMap = new Map();
+    const shift = pts => pts.map(([x, y, p]) => [x + dx, y + dy, p]);
+    const copies = list.map(s => {
+      const { _path, _box, id, ...rest } = s;
+      const c = JSON.parse(JSON.stringify(rest));
+      c.id = ++this.seq;
+      idMap.set(id, c.id);
+      c.pts = shift(s.pts);
+      if (c.raw) c.raw = shift(s.raw);
+      return c;
+    });
+    for (const c of copies) if (c.fill && c.frame) c.frame = c.frame.map(id => idMap.get(id)).filter(Boolean);
+    this.page.strokes.push(...copies);
+    this.push({ type: 'add', strokes: copies }, 'add');
+    this.fullDirty = true;
+    this.selectIds(copies.map(c => c.id));
+    this.request();
+    return copies;
+  }
+
   push(act, kind) {
     this.page.undo.push(act);
     this.page.redo = [];
@@ -667,6 +693,7 @@ export class Board {
       if (this.active !== a || !a.stroke || a.stroke.shape) return;
       const r = recognize(a.stroke.pts);
       if (!r) return;
+      a.live = liveShape(r, a.stroke.pts[a.stroke.pts.length - 1]);
       a.stroke.raw = a.stroke.pts;
       a.stroke.pts = r.pts;
       a.stroke.shape = r.type;

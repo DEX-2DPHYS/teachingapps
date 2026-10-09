@@ -6,7 +6,7 @@
 <title>DTUwrite</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23b3141c'/%3E%3Cstop offset='1' stop-color='%23880000'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='13' fill='url(%23bg)'/%3E%3Cpath d='M8 48 C13 31 20 29 24.5 38.5 S34.5 45 39.5 31' fill='none' stroke='%23fff' stroke-width='5' stroke-linecap='round'/%3E%3Cg transform='translate(40.5 29.5) rotate(-45)'%3E%3Cpath d='M0 0 L9 -5.2 L9 5.2 Z' fill='%23ffd6d6'/%3E%3Cpath d='M0 0 L3.4 -2 L3.4 2 Z' fill='%233b0000'/%3E%3Crect x='8.6' y='-5.2' width='18.4' height='10.4' rx='1.6' fill='%23fff'/%3E%3Crect x='11.2' y='-5.2' width='2.6' height='10.4' fill='%23e9a9a9'/%3E%3Crect x='24.5' y='-5.2' width='3.5' height='10.4' rx='1.7' fill='%23ffd0d0'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-08.0837">
+<link rel="stylesheet" href="style.css?v=2026-10-09.1452">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -74,6 +74,8 @@
       <button id="aiModels" title="The models and the reading settings (Settings → AI)">⚙ Models and reading settings…</button>
     </div>
   </div>
+  <button id="aiSwitch" class="ai-switch" aria-pressed="true" title="AI on / off"><span class="ai-dot"></span>AI on</button>
+  <span class="ai-modes"><button id="liveBtn" class="seg" title="Live reading">Live</button><button id="onceBtn" class="seg" title="Read once">Once</button></span>
     <div class="menu">
       <button id="settingsBtn" class="mbtn" title="Settings: board, AI, pen, export, tools">⚙<span class="lbl"> Settings</span></button>
       <div id="settingsMenu" class="popup" hidden>
@@ -131,7 +133,7 @@
         </section>
         <section>
           <h4>Pen</h4>
-          <label class="check" title="Hold the pen still at the end of a stroke to straighten it into a line, circle, rectangle ..."><input type="checkbox" id="snap"> Snap shapes when holding the pen still</label>
+          <label class="check" title="Hold the pen still at the end of a stroke to straighten it into a line, circle, rectangle ... Keep the pen down to adjust it (the line end, the rectangle corner, the circle size); it is placed when you lift the pen."><input type="checkbox" id="snap"> Snap shapes when holding the pen still</label>
           <label class="row" title="What holding the side button on the pen does. Tip: set the other Wacom side button to 'Pan/Scroll' in Wacom Tablet Properties to scroll with it.">Side button <select id="penButton">
             <option value="erase">erases while held</option>
             <option value="scroll">scrolls the page</option>
@@ -196,6 +198,10 @@
       <div id="selBar" hidden>
         <button data-sel="group" title="Group: read the selection as one equation (its pieces stay movable). A selection inside one region is split off as its own region.">Group</button>
         <button data-sel="ungroup" title="Split this group into its pieces again" hidden>Ungroup</button>
+        <button data-sel="redraw" title="Redraw: the AI draws a clean version of the selected sketch or graph (SVG + TikZ); replace the sketch with it or put it beside">✎ Redraw</button>
+        <button data-sel="duplicate" title="Duplicate (Ctrl+D). Move the copy and duplicate again: the next copy takes the same step">⧉ Duplicate</button>
+        <button data-sel="copy" title="Copy (Ctrl+C; Ctrl+X cuts)">Copy</button>
+        <button data-sel="paste" title="Paste what was copied (Ctrl+V), also on another page">Paste</button>
         <button data-sel="delete" title="Delete (Del)">Delete</button>
         <button data-sel="close" title="Deselect (Esc)">✕</button>
         <span class="dim">drag to move · corner to resize · click a piece (or Alt + drag) to move it alone</span>
@@ -213,6 +219,7 @@
         <button id="panelPin" title="Dock the panel at the right: the page makes room for it">📌</button>
         <button id="panelFsClose" title="Hide the panel (▤ in the tool bar brings it back)">✕</button>
       </div>
+      <div id="aiOffNote" class="ai-off-note" hidden>The AI is off: nothing is sent and nothing is spent. Your writing is kept and is read when you switch it on. <button>Switch on</button></div>
       <div id="cardBar">
         <span id="cardFilter" class="joined" title="Show every card, or only the regions that need a look (uncertain, readings disagree, a suggestion, an error)">
           <button data-f="all">All</button><button data-f="attention">Needs attention</button>
@@ -237,6 +244,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-08.0837"></script>
+<script type="module" src="app.js?v=2026-10-09.1452"></script>
 </body>
 </html>

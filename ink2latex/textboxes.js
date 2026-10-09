@@ -405,6 +405,11 @@ export class TextLayer {
     const c = this.content(), r = this.range;
     return c && r && !r.collapsed && c.contains(r.commonAncestorContainer) ? r : null;
   }
+  // a selection of all the text in the box (then a size change goes to the box, so lines space with it)
+  selectionIsAll(r) {
+    const c = this.content();
+    return !!(c && r) && r.toString().replace(/\s+/g, '') === c.textContent.replace(/\s+/g, '');
+  }
   // run an execCommand on the selection, or on the whole box when nothing is selected
   format(cmd) {
     const c = this.content();
@@ -434,7 +439,8 @@ export class TextLayer {
   }
   // font size: selected letters, or the whole box (single letters keep their size relative to it)
   setSize(v) {
-    if (this.selection()) { this.sizeRange(v); return; }
+    const part = this.selection();
+    if (part && !this.selectionIsAll(part)) { this.sizeRange(v); return; }
     const t = this.editing, c = this.content();
     t.size = v;
     c.querySelectorAll('[style]').forEach(x => { x.style.fontSize = ''; });
@@ -444,7 +450,7 @@ export class TextLayer {
   step(dir) {
     const next = cur => (dir > 0 ? SIZES.find(v => v > cur + 0.5) || SIZES[SIZES.length - 1] : [...SIZES].reverse().find(v => v < cur - 0.5) || SIZES[0]);
     const part = this.selection();
-    if (part) {
+    if (part && !this.selectionIsAll(part)) {
       this.sizeRange(next(parseFloat(getComputedStyle(nodeOf(part)).fontSize)));
       return;
     }

@@ -1,21 +1,21 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-08.0837';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-08.0837';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-08.0837';
-import { initSend } from './send.js?v=2026-10-08.0837';
-import { initStudent } from './student.js?v=2026-10-08.0837';
-import { initAssign } from './assign.js?v=2026-10-08.0837';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-08.0837';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-08.0837';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-08.0837';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-08.0837';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-09.1452';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-09.1452';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-09.1452';
+import { initSend } from './send.js?v=2026-10-09.1452';
+import { initStudent } from './student.js?v=2026-10-09.1452';
+import { initAssign } from './assign.js?v=2026-10-09.1452';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-09.1452';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-09.1452';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-09.1452';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-09.1452';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
   haiku: 'Haiku 4.5', sonnet: 'Sonnet 5.5', opus: 'Opus 5.5',
-  'mistral-small': 'Mistral Small 4', 'mistral-medium': 'Mistral Medium 3.5', 'mistral-large': 'Mistral Large 3',
+  'mistral-small': 'Mistral Small 4', 'mistral-medium': 'Mistral Medium 3.5', 'mistral-large': 'Mistral Large 3', 'mistral-large-4': 'Mistral Large 4',
   'gpt-luna': 'GPT-6 Luna', 'gpt-sol': 'GPT-6.1 Sol', 'gpt-astra': 'GPT-6 Astra',
   context: 'page context',
 };
@@ -102,7 +102,7 @@ function layoutOf(page = curPage()) {
 
 const board = new Board($('#board'), {
   onCommit: () => { $('#hint').hidden = true; layoutVer++; clearErrorMarks(true); pruneGone(); scheduleRegroup(); scheduleInterpret(); saveSoon(); updateUndoButtons(); },
-  onSnap: (type, p) => toastAt(type, p),
+  onSnap: (type, p) => toastAt(`${type}: move to adjust, lift to place`, p),
   onSelect: sel => placeSelBar(sel),
   onTransform: strokes => afterTransform(strokes),
 });
@@ -818,6 +818,7 @@ applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the ke
     { label: () => `${state.cur + 1}/${state.pages.length}`, tip: 'Page (▦ Pages → Overview)' },
     { icon: '▶', tip: 'Next page (→)', run: () => state.cur < state.pages.length - 1 && gotoPage(state.cur + 1) },
     null,
+    { icon: '✦', tip: 'AI on / off (off: nothing is sent, nothing is spent)', run: () => setAiOn(!!settings.aiOff), on: () => !settings.aiOff },
     { icon: '▤', tip: 'Transcription panel (in full screen: a floating box; 📌 docks it at the right)', run: () => togglePanelAnywhere(), on: () => (document.body.classList.contains('fs') ? fsPanelMode() !== 'off' : !!settings.panel) },
   ],
   onChange: on => { if (on) settings.fsPanel = 'off'; applyFsPanel(); },
@@ -1227,12 +1228,128 @@ function placeSelBar(sel) {
   bar.style.top = Math.max(0, sel.box.y0 * s - 44) + 'px';
 }
 
+// ---- Duplicate (Ctrl+D; again: the same step once more, also after the copy was moved), and cut /
+// copy / paste of ink (Ctrl+X / C / V; a paste on another page lands in the same place)
+let dupLast = null, inkClip = null;
+const CLIP_MARK = '[DTUwrite ink]'; // put on the system clipboard, so a later copy elsewhere wins over this one
+const DUP_STEP = 24;
+function duplicateSelection() {
+  const st = board.selStrokes();
+  if (!st.length) { toast('Select something first (S), then Ctrl+D'); return; }
+  const box = unionBox(st.map(strokeBox)), ids = new Set(st.map(s => s.id));
+  let dx = DUP_STEP, dy = DUP_STEP;
+  // the last copy is still selected: repeat how far it ended up from its original
+  if (dupLast && dupLast.page === curPage() && ids.size === dupLast.ids.size && [...ids].every(i => dupLast.ids.has(i))) {
+    dx = box.x0 - dupLast.from.x0; dy = box.y0 - dupLast.from.y0;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) dx = dy = DUP_STEP;
+  }
+  const copies = board.addCopies(st, dx, dy);
+  dupLast = { page: curPage(), from: box, ids: new Set(copies.map(c => c.id)) };
+}
+function copySelection(cut) {
+  const st = board.selStrokes();
+  if (!st.length) { toast('Select something first (S)'); return false; }
+  inkClip = { strokes: st.map(s => { const { _path, _box, ...r } = s; return JSON.parse(JSON.stringify(r)); }), page: curPage(), cut, n: 0 };
+  try { navigator.clipboard?.writeText(CLIP_MARK).catch(() => {}); } catch { /* no clipboard access: the paste below still works */ }
+  if (cut) board.deleteSelection();
+  toast(cut ? 'Cut: Ctrl+V puts it back (also on another page)' : 'Copied: Ctrl+V pastes it (also on another page)');
+  return true;
+}
+function pasteInk() {
+  if (!inkClip) { toast('Nothing copied yet: select ink and press Ctrl+C'); return false; }
+  inkClip.n++;
+  // on the page it came from (copied, not cut): a step down-right each time; elsewhere: the same place first
+  const d = DUP_STEP * (inkClip.page === curPage() && !inkClip.cut ? inkClip.n : inkClip.n - 1);
+  if (board.tool !== 'lasso') setTool('lasso');
+  const copies = board.addCopies(inkClip.strokes, d, d);
+  dupLast = { page: curPage(), from: unionBox(inkClip.strokes.map(strokeBox)), ids: new Set(copies.map(c => c.id)) };
+  return true;
+}
+
+// ---- Redraw the selected sketch: the AI's clean version, shown beside the sketch; replace it or put it beside
+async function redrawSelection() {
+  const st = board.selStrokes().filter(s => !s.fill);
+  if (!st.length) { toast('Select a sketch or graph first (S)'); return; }
+  if (settings.aiOff) { toast('The AI is off: switch it on first'); return; }
+  const box = unionBox(st.map(strokeBox)), page = curPage(), ids = st.map(s => s.id);
+  const crop = renderCrop(st, 1200);
+  const model = figureModel();
+  $('#redrawDlg')?.remove();
+  const d = document.createElement('div');
+  d.id = 'redrawDlg';
+  d.innerHTML = `<div class="rd-box" role="dialog" aria-label="Redraw">
+      <strong>Redraw</strong> <span class="dim">${esc(MODELS[model] || model)}</span>
+      <div class="rd-pair"><figure><img alt="your sketch" src="data:${crop.mediaType};base64,${crop.image}"><figcaption>Your sketch</figcaption></figure>
+        <figure class="rd-new"><div class="rd-wait">Redrawing… <span class="dim">(up to a minute: the model thinks it through)</span></div><figcaption>Redrawn</figcaption></figure></div>
+      <div class="rd-desc dim"></div>
+      <div class="rd-act"><button data-r="replace" class="primary" disabled title="The redrawing takes the sketch's place (Ctrl+Z brings the sketch back; the figure: Select → ✕)">Replace the sketch</button>
+        <button data-r="beside" disabled title="Put the redrawing next to the sketch">Put it beside</button>
+        <button data-r="svg" disabled>SVG ↓</button><button data-r="tikz" disabled>TikZ</button>
+        <button data-r="close">Cancel</button></div>
+    </div>`;
+  document.body.appendChild(d);
+  let fig = null, open = true;
+  const close = () => { open = false; d.remove(); };
+  d.addEventListener('pointerdown', e => { if (e.target === d) close(); });
+  d.querySelector('.rd-act').addEventListener('click', async e => {
+    const a = e.target.closest('button')?.dataset.r;
+    if (!a) return;
+    if (a === 'close') { close(); return; }
+    if (!fig) return;
+    if (a === 'svg') { download('redrawn.svg', fig.svg, 'image/svg+xml'); return; }
+    if (a === 'tikz') { copyText(fig.tikz, 'TikZ copied'); return; }
+    // on the page: the drawing as a figure over the sketch's area (the same crop, 16 units around it)
+    const pad = 16, w = box.x1 - box.x0 + 2 * pad, h = box.y1 - box.y0 + 2 * pad;
+    const x = a === 'beside' ? Math.min(board.pageW - w, box.x1 + 40) : box.x0 - pad, y = box.y0 - pad;
+    try {
+      const blob = await svgToPng(fig.svg, crop.width, crop.height, THEMES[settings.board].palette.auto);
+      const src = await storeImage(blob);
+      (page.images ||= []).push({ id: newImageId(), src, x, y, w, h, bg: false });
+      if (a === 'replace' && page === curPage()) { board.selectIds(ids); board.deleteSelection(); }
+      board.request(); saveSoon(); renderFigHandles();
+      toast(a === 'replace' ? 'Replaced: Ctrl+Z brings the sketch back (the figure: Select → ✕)' : 'Redrawing added beside the sketch');
+      close();
+    } catch (err) { toast('Could not place the drawing: ' + err.message); }
+  });
+  try {
+    const r = await api({ task: 'figure', model, image: crop.image, mediaType: crop.mediaType, width: crop.width, height: crop.height, note: '' });
+    if (!open) return;
+    fig = r.data;
+    const nw = d.querySelector('.rd-new');
+    nw.querySelector('.rd-wait').outerHTML = `<img alt="redrawn" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(fig.svg)}">`;
+    d.querySelector('.rd-desc').textContent = fig.description || '';
+    d.querySelectorAll('.rd-act button[disabled]').forEach(x => { x.disabled = false; });
+  } catch (err) {
+    if (!open) return;
+    d.querySelector('.rd-wait').innerHTML = `<span class="err">Could not redraw: ${esc(err.message)}</span>`;
+  }
+}
+// an SVG (black ink) as a PNG in the board's ink colour, at twice the crop's size for sharp lines
+function svgToPng(svg, w, h, ink) {
+  const col = String(svg).replace(/(stroke|fill)="(black|#000|#000000)"/g, `$1="${ink}"`).replace(/(stroke|fill):\s*(black|#000|#000000)/g, `$1:${ink}`).replace(/<svg\b/, `<svg color="${ink}"`);
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * 2); c.height = Math.round(h * 2);
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      c.toBlob(b => (b ? res(b) : rej(new Error('no image'))), 'image/png');
+    };
+    im.onerror = () => rej(new Error('the drawing could not be read'));
+    im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(col);
+  });
+}
+
 $('#selBar').addEventListener('pointerdown', e => e.stopPropagation());
 $('#selBar').addEventListener('click', e => {
   const act = e.target.closest('button')?.dataset.sel;
   if (act === 'group') { const st = board.selStrokes(); board.clearSelection(); if (st.length) groupStrokes(st); }
   if (act === 'ungroup') { const g = selectedGroup(); board.clearSelection(); if (g) ungroup(g); }
   if (act === 'delete') board.deleteSelection();
+  if (act === 'duplicate') duplicateSelection();
+  if (act === 'redraw') redrawSelection();
+  if (act === 'copy') copySelection(false);
+  if (act === 'paste') pasteInk();
   if (act === 'close') board.clearSelection();
 });
 
@@ -1314,6 +1431,56 @@ function newBlock() {
   return { id: ++blockSeq, strokeIds: [], sig: '', version: 0, status: 'stale', model: null, result: null, edit: null, confirmed: false, figure: null, comment: '', suggest: null };
 }
 
+// ----------------------------------------------------------------------------------- AI on / off
+// The switch in the menu line (and ✦ in the floating tool bar). Off: aiFetch sends nothing.
+function setAiOn(on) {
+  settings.aiOff = !on;
+  saveSettings();
+  applyAiSwitch();
+  if (on) {
+    if (settings.auto) curPage().blocks.filter(b => b.status === 'stale').forEach(b => transcribe(b, settings.liveModel));
+    scheduleInterpret();
+    toast('AI on: new writing is read again');
+  } else {
+    clearTimeout(interpTimer);
+    toast('AI off: nothing is sent and nothing is spent until you switch it on');
+  }
+}
+// Once: read what is new (or failed) on this page, one time, whether Live is on or not
+function readOnce() {
+  if (settings.aiOff) { toast('The AI is off: switch it on first'); return; }
+  const todo = curPage().blocks.filter(b => b.status === 'stale' || b.status === 'error');
+  if (!todo.length) { toast('Nothing new to read on this page'); return; }
+  todo.forEach(b => transcribe(b, settings.liveModel));
+  scheduleInterpret();
+  toast(`Reading ${todo.length} region${todo.length > 1 ? 's' : ''}…`);
+}
+function setLive(on) {
+  const el = document.getElementById('auto');
+  el.checked = on;
+  el.dispatchEvent(new Event('change'));
+}
+function applyAiSwitch() {
+  const off = !!settings.aiOff, b = document.getElementById('aiSwitch');
+  const live = document.getElementById('liveBtn'), once = document.getElementById('onceBtn');
+  if (live) {
+    live.classList.toggle('on', !!settings.auto);
+    live.disabled = once.disabled = off;
+    live.title = off ? 'Live reading (the AI is off)' : settings.auto ? 'Live: on. Your writing is read when you pause. Click to stop.' : 'Live: off. Click to read your writing whenever you pause.';
+    once.title = off ? 'Read once (the AI is off)' : 'Read once: what is new on this page, now (also with Live off)';
+  }
+  document.body.classList.toggle('ai-off', off);
+  if (b) {
+    b.classList.toggle('off', off);
+    b.setAttribute('aria-pressed', String(!off));
+    b.innerHTML = off ? '<span class="ai-dot"></span>AI off' : '<span class="ai-dot"></span>AI on';
+    b.title = off ? 'The AI is off: nothing is sent, nothing is spent. Your writing is kept. Click to switch it on.' : 'The AI is on: your writing is read (live, when you pause). Click to switch it off and write without spending anything.';
+  }
+  const n = document.getElementById('aiOffNote');
+  if (n) n.hidden = !off;
+  try { fullscreen.sync(); } catch { /* not set up yet */ }
+}
+
 // ----------------------------------------------------------------------------------- API
 // Where the AI runs: the local server when the app comes from it (localhost, or the LAN address with
 // its token); otherwise the cloud (Supabase Edge Function ink2latex-ai) with the 📡 Send login.
@@ -1322,12 +1489,14 @@ const AI_CLOUD = new URLSearchParams(location.search).get('ai') === 'cloud'
   || new URLSearchParams(location.search).has('join') || !!settings.studentLecture
   || !(['localhost', '127.0.0.1'].includes(location.hostname) || TOKEN);
 async function aiFetch(method, body) {
+  // AI off: refused here, before any network call (asking which engines exist, GET, costs nothing)
+  if (method !== 'GET' && settings.aiOff) throw Object.assign(new Error('The AI is off (AI on/off in the menu line): nothing was sent'), { aiOff: true });
   if (!AI_CLOUD) {
     const headers = { 'Content-Type': 'application/json' };
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-08.0837');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-09.1452');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1431,6 +1600,7 @@ function unbalancedBrackets(r) {
 // different: the final model's reading, with the alternatives listed as ambiguities). Explicit
 // final-model readings (Finalize, re-run) are made once.
 async function transcribe(b, modelKey) {
+  if (settings.aiOff) { if (b.status !== 'done') b.status = 'stale'; return; } // read when the AI is switched on again
   const page = pageOf(b);
   const strokes = strokesOf(b, page);
   if (!strokes.length) return;
@@ -1490,6 +1660,7 @@ async function transcribe(b, modelKey) {
 
 // double click / double tap on a region: answer its "= ?" / "= ?AI" now (reading new ink first if needed)
 function requestAnswer(b) {
+  if (settings.aiOff) { toast('The AI is off: switch it on (AI in the menu line) to read and answer'); return; }
   if (b.status === 'busy' || b.status === 'stale') {
     b.forceEval = true;
     if (b.status === 'stale') transcribe(b, settings.liveModel);
@@ -1768,6 +1939,8 @@ function renderAnswers(list) {
   }
 }
 
+// who redraws sketches: with Mistral, Large 4 (thinking on for this task); otherwise the heavy model
+const figureModel = () => (engineOf(settings.finalModel) === 'mistral' ? 'mistral-large-4' : heavyModel());
 async function makeFigure(b) {
   const strokes = strokesOf(b, pageOf(b));
   if (!strokes.length) return;
@@ -1775,8 +1948,9 @@ async function makeFigure(b) {
   b.figureBusy = true; b.figureError = null;
   renderAll();
   try {
-    const r = await api({ task: 'figure', model: heavyModel(), image, mediaType, width, height, note: b.comment || '' });
-    b.figure = r.data;
+    const model = figureModel();
+    const r = await api({ task: 'figure', model, image, mediaType, width, height, note: b.comment || '' });
+    b.figure = { ...r.data, model };
   } catch (err) {
     b.figureError = err.message;
   }
@@ -1795,7 +1969,7 @@ const interpSig = page => page.strokes.map(s => s.id).join(',') + '|' + page.blo
 
 function scheduleInterpret() {
   clearTimeout(interpTimer);
-  if (!settings.autoInterp || assign?.quiet()) return;
+  if (!settings.autoInterp || settings.aiOff || assign?.quiet()) return;
   interpTimer = setTimeout(() => {
     const page = curPage();
     if (board.active || interpBusy || page.blocks.some(b => b.status === 'busy') || regroupPending()) { scheduleInterpret(); return; }
@@ -2328,7 +2502,7 @@ function fillCard(el, b, num) {
       ${num > 1 ? `<button data-act="mergeprev" title="Group this region with region ${num - 1}: read as one equation, pieces stay movable">⇡ Group with ${num - 1}</button>` : ''}
       ${canUngroup(b) ? '<button data-act="ungroup" title="Split into its pieces again, each read on its own (Ctrl+Shift+G)">Ungroup</button>' : ''}
       ${r && r.kind === 'figure' ? '<button data-act="straighten" title="Straighten axes and lines, clean arrowheads, smooth curves - on the page itself (undo with Ctrl+Z)">Straighten</button>' : ''}
-      ${r && r.kind === 'figure' && !b.figure ? `<button data-act="figure" title="${heavyName()} redraws the sketch as a clean vector figure (SVG + TikZ), shown below the description" ${b.figureBusy ? 'disabled' : ''}>Redraw as figure</button>` : ''}
+      ${r && r.kind === 'figure' && !b.figure ? `<button data-act="figure" title="${MODELS[figureModel()] || heavyName()} redraws the sketch as a clean vector figure (SVG + TikZ), shown below the description" ${b.figureBusy ? 'disabled' : ''}>Redraw as figure</button>` : ''}
       ${b.figure ? '<button data-act="svg">SVG ↓</button><button data-act="tikz">TikZ</button><button data-act="nofig" title="Remove the redrawn figure from this card">✕ Figure</button>' : ''}
       </div>
     </div>`;
@@ -3262,7 +3436,8 @@ function penPopHtml(mode) {
       <div class="pp-colors">${PEN_COLORS.map(c => `<button data-pc="${c}" class="pp-col${c === cur.color ? ' on' : ''}" title="${PEN_COLOR_NAMES[c]}" style="--c:${THEMES[settings.board].palette[c]}"></button>`).join('')}</div>
       <div class="pp-row"><button data-pt="alpha" class="${cur.alpha < 1 ? 'on' : ''}" title="See-through ink, like a highlighter">See-through</button>
         <button data-pt="dash" class="${cur.dash ? 'on' : ''}" title="Dashed line">Dashed</button></div>
-      <div class="pp-row">${PEN_WIDTHS.map(([n, w]) => `<button data-pw="${w}" class="pp-w${Math.abs(cur.size - w) < 0.01 ? ' on' : ''}" title="${n}" style="background:${bg}">${penSample({ ...cur, size: w }, 64, 22)}</button>`).join('')}</div>`;
+      <div class="pp-row">${PEN_WIDTHS.map(([n, w]) => `<button data-pw="${w}" class="pp-w${Math.abs(cur.size - w) < 0.01 ? ' on' : ''}" title="${n}" style="background:${bg}">${penSample({ ...cur, size: w }, 64, 22)}</button>`).join('')}</div>
+      <div class="pp-stored">${slots().map((st, i) => `<button data-ps="${i}" class="pp-ps${st ? '' : ' empty'}${st && samePen(st, cur) ? ' on' : ''}" title="${st ? 'Stored pen ' + (i + 1) + ' (or press ' + (i + 1) + ')' : 'Slot ' + (i + 1) + ' is empty: hold S and press ' + (i + 1) + ' to store the current pen'}" style="background:${bg}"><span class="pp-n">${i + 1}</span>${st ? penSample(st, 44, 16) : ''}</button>`).join('')}</div>`;
   }
   const store = mode === 'store';
   return `<div class="pp-title">${store ? 'Store the current pen' : 'Recall a pen'} <span class="dim">· 1-5 or click</span></div>
@@ -3288,6 +3463,7 @@ function openPenPop(mode) {
 }
 function closePenPop() { penPop?.remove(); penPop = null; }
 function refreshPenPop() { if (penPop) penPop.innerHTML = penPopHtml(penPop.dataset.mode); }
+const samePen = (a, b) => a.color === b.color && Math.abs(a.size - b.size) < 0.01 && (a.alpha ?? 1) === (b.alpha ?? 1) && !!a.dash === !!b.dash;
 function penPopPick(btn) {
   if (!btn || !penPop) return;
   const mode = penPop.dataset.mode;
@@ -3299,6 +3475,13 @@ function penPopPick(btn) {
     if (d.pt === 'alpha') st.alpha = st.alpha < 1 ? 1 : SEE_THROUGH;
     if (d.pt === 'dash') st.dash = !st.dash;
     if (d.pw) st.size = Number(d.pw);
+    if (d.ps != null) { // a stored pen
+      const sp = slots()[Number(d.ps)];
+      if (!sp) { toast(`Slot ${Number(d.ps) + 1} is empty: hold S and press ${Number(d.ps) + 1} to store the current pen there`); return; }
+      applyPenStyle({ ...sp });
+      refreshPenPop();
+      return;
+    }
     applyPenStyle(st);
     refreshPenPop();
     return;
@@ -3365,7 +3548,7 @@ const SHORTCUTS = [
     ['S (hold)', 'Store the current pen in one of 5 slots'], ['R (hold)', 'Recall one of the 5 stored pens'], ['1-5', 'Switch to stored pen 1-5 (or pick a slot while a palette is open)']]],
   ['Page', [['Space (hold)', 'Preview: the transcriptions in place of the ink'], ['B', 'Region boxes: all / current / off'],
     ['I', 'Use the HTML on this page / write on it'], ['N', 'Next region that needs attention'], ['← → / PgUp PgDn', 'Previous / next page'], ['Enter', 'Answer the question under the pen']]],
-  ['Editing', [['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+G', 'Group the selection'], ['Ctrl+Shift+G', 'Ungroup'], ['Delete', 'Delete the selection'], ['Esc', 'Deselect, close a popup']]],
+  ['Editing', [['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+G', 'Group the selection'], ['Ctrl+Shift+G', 'Ungroup'], ['Ctrl+D', 'Duplicate the selection (again: the same step once more)'], ['Ctrl+X / C / V', 'Cut / copy / paste ink (also to another page)'], ['Delete', 'Delete the selection'], ['Esc', 'Deselect, close a popup']]],
   ['Other', [['K', 'This list'], ['Ctrl+P', 'Print'], ['Ctrl+Shift+D', 'Diagnostics']]],
 ];
 function toggleKeys() {
@@ -3638,6 +3821,12 @@ function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
 checkEngines();
 const autoEl = $('#auto');
 autoEl.checked = settings.auto;
+$('#aiSwitch').addEventListener('click', () => setAiOn(!!settings.aiOff));
+$('#liveBtn').addEventListener('click', () => setLive(!settings.auto));
+$('#onceBtn').addEventListener('click', readOnce);
+autoEl.addEventListener('change', () => setTimeout(applyAiSwitch)); // after the Live handler below has set settings.auto
+$('#aiOffNote button').addEventListener('click', () => setAiOn(true));
+applyAiSwitch();
 autoEl.addEventListener('change', () => {
   settings.auto = autoEl.checked; saveSettings();
   if (settings.auto) curPage().blocks.filter(b => b.status === 'stale').forEach(b => transcribe(b, settings.liveModel));
@@ -3720,8 +3909,11 @@ applyPanel();
 $('#photoBtn').addEventListener('click', () => $('#photoInput').click());
 $('#photoInput').addEventListener('change', e => { [...e.target.files].forEach(addPhoto); e.target.value = ''; });
 document.addEventListener('paste', e => {
-  if (e.target.closest && e.target.closest('textarea, input')) return;
-  for (const item of e.clipboardData?.items || []) if (item.type.startsWith('image/')) addPhoto(item.getAsFile());
+  if (e.target.isContentEditable || (e.target.closest && e.target.closest('textarea, input'))) return;
+  const text = e.clipboardData?.getData('text/plain') || '';
+  const imgs = [...(e.clipboardData?.items || [])].filter(i => i.type.startsWith('image/'));
+  if (inkClip && (text === CLIP_MARK || (!imgs.length && !text))) { e.preventDefault(); pasteInk(); return; }
+  for (const item of imgs) addPhoto(item.getAsFile());
 });
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => {
@@ -3772,6 +3964,8 @@ document.addEventListener('keydown', e => {
   else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); board.redo(); }
   else if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); printNow(); }
   else if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'd') { e.preventDefault(); toggleDiag(); }
+  else if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'd') { e.preventDefault(); duplicateSelection(); }
+  else if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 'c' || k === 'x') && board.sel) { e.preventDefault(); copySelection(k === 'x'); }
   else if ((e.ctrlKey || e.metaKey) && k === 'g' && board.sel) {
     // Ctrl+G groups the selection, Ctrl+Shift+G ungroups a selected group (as in PowerPoint)
     e.preventDefault();

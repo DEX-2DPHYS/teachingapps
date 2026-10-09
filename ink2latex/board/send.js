@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-08.0837';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-09.1452';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I

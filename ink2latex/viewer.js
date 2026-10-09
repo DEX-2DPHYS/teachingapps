@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-08.0837';
-import { TextLayer } from './textboxes.js?v=2026-10-08.0837';
-import { drawImages } from './figures.js?v=2026-10-08.0837';
-import { initFullscreen } from './fullscreen.js?v=2026-10-08.0837';
-import { paneLayer } from './panes.js?v=2026-10-08.0837';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-09.1452';
+import { TextLayer } from './textboxes.js?v=2026-10-09.1452';
+import { drawImages } from './figures.js?v=2026-10-09.1452';
+import { initFullscreen } from './fullscreen.js?v=2026-10-09.1452';
+import { paneLayer } from './panes.js?v=2026-10-09.1452';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };

@@ -1,6 +1,7 @@
 // Shape recognition for "hold the pen still to snap": line, polyline (e.g. axes),
 // circle/ellipse, triangle, rectangle/quadrilateral, polygon.
-// Input: raw points [[x, y, pressure], ...]. Output: { type, pts } with dense points, or null.
+// Input: raw points [[x, y, pressure], ...]. Output: { type, pts, live } with dense points, or null;
+// `live` holds the shape's parameters so liveShape() can keep adjusting it until the pen is lifted.
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const DEG = Math.PI / 180;
@@ -276,7 +277,8 @@ export function recognize(raw) {
     let maxDev = 0;
     for (const p of pts) maxDev = Math.max(maxDev, segDist(p, a, b));
     if (maxDev < Math.max(3, 0.05 * L)) {
-      return { type: 'line', pts: densify([a, snapDir(a, b)]) };
+      const b2 = snapDir(a, b);
+      return { type: 'line', pts: densify([a, b2]), live: { kind: 'end', fixed: [a], end: b2 } };
     }
     // polyline with a few straight segments (axes, arrows drawn in one stroke, zig-zags)
     const simp = rdp(pts, Math.max(4, 0.035 * L));
@@ -289,7 +291,7 @@ export function recognize(raw) {
         const d = [snapped[0] - prevRaw[0], snapped[1] - prevRaw[1]];
         v.push([v[i - 1][0] + d[0], v[i - 1][1] + d[1]]);
       }
-      return { type: 'polyline', pts: densify(v) };
+      return { type: 'polyline', pts: densify(v), live: { kind: 'end', fixed: v.slice(0, -1), end: v[v.length - 1] } };
     }
     return null;
   }
@@ -305,18 +307,53 @@ export function recognize(raw) {
   const eNorm = ell.err / size, pNorm = polyErr / size;
   const limit = 0.04;
   if (eNorm < limit && eNorm <= pNorm) {
-    return { type: ell.circle ? 'circle' : 'ellipse', pts: ellipsePoints(ell) };
+    return { type: ell.circle ? 'circle' : 'ellipse', pts: ellipsePoints(ell), live: { kind: 'ellipse', ell } };
   }
   if (pNorm < limit) {
     if (poly.length === 4) {
       const ang = interiorAngles(poly);
       if (ang.every(a => Math.abs(a - 90) < 18)) {
         const r = fitRectangle(poly);
-        return { type: 'rectangle', pts: densify(r.concat([r[0]])) };
+        return { type: 'rectangle', pts: densify(r.concat([r[0]])), live: { kind: 'rect', corners: r } };
       }
     }
     const name = { 3: 'triangle', 4: 'quadrilateral' }[poly.length] || 'polygon';
-    return { type: name, pts: densify(poly.concat([poly[0]])) };
+    return { type: name, pts: densify(poly.concat([poly[0]])), live: { kind: 'vertex', poly } };
   }
   return null;
+}
+
+// After a snap the shape stays live while the pen is down: liveShape(r, pen0) returns p => pts for
+// the pen at p. A line's or polyline's free end follows the pen (still snapping to 0/45/90°); a
+// rectangle's corner under the pen moves and the opposite corner stays (close to a square: a square);
+// a circle or ellipse keeps its centre and grows or shrinks with the pen's distance from it; a
+// triangle or polygon moves the corner nearest the pen. pen0 is where the pen was at the snap: the
+// handle keeps its offset from the pen, so the first frame is exactly the snapped shape.
+export function liveShape(r, pen0) {
+  const L = r && r.live;
+  if (!L) return null;
+  const offset = h => [h[0] - pen0[0], h[1] - pen0[1]];
+  const nearest = vs => { let k = 0; vs.forEach((v, i) => { if (dist(v, pen0) < dist(vs[k], pen0)) k = i; }); return k; };
+  if (L.kind === 'end') {
+    const prev = L.fixed[L.fixed.length - 1], o = offset(L.end);
+    return p => densify([...L.fixed, snapDir(prev, [p[0] + o[0], p[1] + o[1]])]);
+  }
+  if (L.kind === 'ellipse') {
+    const { cx, cy, a, b } = L.ell, d0 = Math.max(1e-6, Math.hypot(pen0[0] - cx, pen0[1] - cy));
+    return p => { const f = Math.max(0.02, Math.hypot(p[0] - cx, p[1] - cy) / d0); return ellipsePoints({ ...L.ell, a: a * f, b: b * f }); };
+  }
+  if (L.kind === 'rect') {
+    const C = L.corners, k = nearest(C), fixed = C[(k + 2) % 4], o = offset(C[k]);
+    const e = [C[1][0] - C[0][0], C[1][1] - C[0][1]], n = Math.hypot(...e) || 1, c = e[0] / n, s = e[1] / n;
+    return p => {
+      const q = [p[0] + o[0] - fixed[0], p[1] + o[1] - fixed[1]];
+      let du = q[0] * c + q[1] * s, dv = -q[0] * s + q[1] * c;
+      const m = Math.max(Math.abs(du), Math.abs(dv));
+      if (m > 0 && Math.abs(Math.abs(du) - Math.abs(dv)) < 0.06 * m) { du = (Math.sign(du) || 1) * m; dv = (Math.sign(dv) || 1) * m; }
+      const P = (u, v) => [fixed[0] + u * c - v * s, fixed[1] + u * s + v * c];
+      return densify([P(0, 0), P(du, 0), P(du, dv), P(0, dv), P(0, 0)]);
+    };
+  }
+  const k = nearest(L.poly), o = offset(L.poly[k]);
+  return p => { const v = L.poly.slice(); v[k] = [p[0] + o[0], p[1] + o[1]]; return densify(v.concat([v[0]])); };
 }
