@@ -819,6 +819,8 @@ body[data-board="black"] #voiceCard { background: #1e2421; color: #e6ece8; borde
 #voiceCard .vc-prev { padding: 8px 10px; border-radius: 8px; background: rgba(31,95,209,.08); font-size: 17px; overflow-x: auto; }
 #voiceCard .vc-old { opacity: .55; text-decoration: line-through; }
 #voiceCard .vc-err { color: #c62828; }
+#voiceCard .vc-ai { font-size: 12.5px; color: #1f3f8f; background: #e8f0fe; border-radius: 5px; padding: 2px 6px; align-self: flex-start; }
+#voiceCard .vc-ai.unsure { color: #8a4b00; background: #fff3e0; }
 
 /* shortcut bar (Ctrl+K) */
 #shortcutBar { position: fixed; right: 8px; top: 64px; z-index: 65; display: flex; flex-direction: column; gap: 3px; padding: 5px; max-height: calc(100vh - 84px); overflow-y: auto;
