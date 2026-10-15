@@ -6,7 +6,7 @@
 <title>DTUwrite</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23b3141c'/%3E%3Cstop offset='1' stop-color='%23880000'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='13' fill='url(%23bg)'/%3E%3Cpath d='M8 48 C13 31 20 29 24.5 38.5 S34.5 45 39.5 31' fill='none' stroke='%23fff' stroke-width='5' stroke-linecap='round'/%3E%3Cg transform='translate(40.5 29.5) rotate(-45)'%3E%3Cpath d='M0 0 L9 -5.2 L9 5.2 Z' fill='%23ffd6d6'/%3E%3Cpath d='M0 0 L3.4 -2 L3.4 2 Z' fill='%233b0000'/%3E%3Crect x='8.6' y='-5.2' width='18.4' height='10.4' rx='1.6' fill='%23fff'/%3E%3Crect x='11.2' y='-5.2' width='2.6' height='10.4' fill='%23e9a9a9'/%3E%3Crect x='24.5' y='-5.2' width='3.5' height='10.4' rx='1.7' fill='%23ffd0d0'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-09.1517">
+<link rel="stylesheet" href="style.css?v=2026-10-15.0842">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -102,6 +102,13 @@
           <div class="row"><span>Final</span> <select id="finalModel" title="Second opinion when two readings differ (Balanced, Careful), ↻ read again, Interpret page, photos, Finalize"></select></div>
           <div class="dim small model-use">second opinion when readings differ, ↻ read again, Interpret page, photos, Finalize</div>
           <div class="dim small model-use" id="heavyModelNow"></div>
+          <label class="row student-only" title="Your lecturer asks students to pay for the AI themselves: your key for the engine you chose above (Claude: sk-ant-…, Mistral, OpenAI). Kept only in this browser and sent with each request; never stored by DTUwrite.">Your own key <input type="password" id="ownKey" autocomplete="off" placeholder="paste your API key"></label>
+          <div id="engineStatus" class="dim small"></div>
+          <div id="localKeys" hidden>
+            <div class="small"><b>API keys (this PC)</b></div>
+            <div class="dim small key-note">Paste a key and press Save. It is stored encrypted for your Windows login (not in Dropbox, not readable on another PC) and is never shown again: only the last four characters are. A key saved here is used instead of one set with setx.</div>
+            <div id="localKeyRows"></div>
+          </div>
           <button id="finalizeAll" title="Re-transcribe every unconfirmed region on this page with the final model">Finalize all regions on this page</button>
           <label class="check" title="About 10 s after you stop writing, the whole page is interpreted in context (only when something changed)"><input type="checkbox" id="autoInterp"> Interpret page automatically</label>
           <label class="check" title="When the page interpretation finds one expression split over several regions, group them and read them again together. Only the grouping changes, so this is safe for assessment."><input type="checkbox" id="autoMerge"> Group split expressions automatically</label>
@@ -113,8 +120,6 @@
           <label class="check" title="Ink on the same written line joins one region across wider gaps, so an equation written with spaces is read as one expression rather than in pieces. Applies to new writing."><input type="checkbox" id="lineGroup"> Group whole lines</label>
           <label class="check" title="Each region is read twice, from two different images. If the readings differ, the final model reads it a third time and the majority wins; a three-way split is flagged. Costs about twice as much per region (more when readings differ)."><input type="checkbox" id="twoReadings"> Two readings, a third when they differ</label>
           <label class="check" title="'Interpret page' also reads the whole page independently, without seeing the region readings, and flags every region where the two differ. Doubles the cost of an interpretation."><input type="checkbox" id="pageCheck"> Independent page reading on 'Interpret page'</label>
-          <label class="row student-only" title="Your lecturer asks students to pay for the AI themselves: your key for the engine you chose above (Claude: sk-ant-…, Mistral, OpenAI). Kept only in this browser and sent with each request; never stored by DTUwrite.">Your own key <input type="password" id="ownKey" autocomplete="off" placeholder="paste your API key"></label>
-          <div id="engineStatus" class="dim small"></div>
         </section>
         <section id="studentsSection" class="lecturer-only">
           <h4>Students</h4>
@@ -126,6 +131,7 @@
             <label class="check"><input type="checkbox" data-sf="sym"> Symbolic results (= ?S)</label>
             <label class="check"><input type="checkbox" data-sf="solve"> AI solutions (= ?AI)</label>
             <label class="check"><input type="checkbox" data-sf="latex"> ∑ LaTeX (typed text to maths)</label>
+            <label class="check" title="The 🎤 button: speak to write text or correct a region. Audio is sent to the AI service for transcription."><input type="checkbox" data-sf="voice"> Voice input (🎤)</label>
             <label class="check" title="Coming: an AI coach that gives feedback following your instructions"><input type="checkbox" data-sf="coach"> Coach (soon)</label>
             <label class="row" title="The models students use when the course pays (with their own key they choose themselves)">Live model <select id="stuLive"></select></label>
             <label class="row">Final model <select id="stuFinal"></select></label>
@@ -248,6 +254,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-09.1517"></script>
+<script type="module" src="app.js?v=2026-10-15.0842"></script>
 </body>
 </html>

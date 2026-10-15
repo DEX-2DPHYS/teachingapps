@@ -142,6 +142,8 @@ body[data-board="black"] .swatch[data-color="green"] { background: #9ae6a0; }
 #settingsMenu .check { align-items: flex-start; }
 #settingsMenu .check input { margin-top: 3px; }
 #settingsMenu .row { display: flex; align-items: center; gap: 6px; }
+#localKeyRows input { width: 11em; }
+#localKeys .key-note { white-space: normal; max-width: 30em; margin-bottom: 2px; }
 #settingsMenu hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
 #settingsMenu a { color: var(--accent); }
 
@@ -776,3 +778,67 @@ body.fs.fs-panel-float #panel.fs-hide { display: block !important; position: fix
 body.fs.fs-panel-float #panelHead { cursor: move; position: sticky; top: 0; z-index: 2; background: var(--panel); padding-top: 6px; margin-top: 0; }
 body.fs #panelHead { align-items: center; }
 #fsBar button.fs-close { height: 22px !important; font-size: 13px !important; }
+
+/* zoom to an area (Z) */
+#roiLayer { position: absolute; inset: 0; z-index: 60; display: none; cursor: zoom-in; touch-action: none; background: rgba(31,95,209,.06); }
+#roiLayer .roi-frame { position: absolute; border: 2px dashed #1f5fd1; background: rgba(31,95,209,.12); pointer-events: none; }
+#roiOut { position: fixed; right: 18px; top: 64px; z-index: 70; padding: 7px 14px; border-radius: 8px; border: 1px solid #1f5fd1;
+  background: #1f5fd1; color: #fff; font: 600 14px system-ui, sans-serif; box-shadow: 0 3px 12px rgba(0,0,0,.3); cursor: pointer; }
+
+/* numeric <-> analytical switch beside an answer */
+.form-chip {
+  position: absolute; pointer-events: auto; touch-action: none; white-space: nowrap;
+  font: 600 11px system-ui, sans-serif; padding: 2px 8px; border-radius: 10px;
+  background: rgba(255,255,255,.85); color: #444; border: 1px solid #aaa; cursor: pointer; opacity: .7;
+}
+.form-chip:hover { opacity: 1; background: #fff; }
+body[data-board="black"] .form-chip { background: rgba(30,36,33,.9); color: #cfd8d3; border-color: #5b6a62; }
+
+/* voice input card (V) */
+#voiceCard { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 90; width: min(560px, calc(100vw - 24px));
+  background: #fff; color: #1d1d1f; border: 1px solid #c9c9c4; border-radius: 12px; padding: 10px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.28);
+  font: 14px system-ui, sans-serif; display: flex; flex-direction: column; gap: 8px; }
+body[data-board="black"] #voiceCard { background: #1e2421; color: #e6ece8; border-color: #3a4640; }
+#voiceCard .vc-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#voiceCard .vc-row button, #voiceCard select { font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px solid #b8b8b2; background: transparent; color: inherit; cursor: pointer; }
+#voiceCard .vc-main { background: #1f5fd1; border-color: #1f5fd1; color: #fff; font-weight: 600; }
+#voiceCard .vc-main:disabled { opacity: .4; cursor: default; }
+#voiceCard .vc-dot { width: 12px; height: 12px; border-radius: 50%; background: #d32f2f; animation: vcp 1s infinite; }
+@keyframes vcp { 50% { opacity: .25; } }
+#voiceCard .vc-level { flex: 1; min-width: 80px; height: 8px; background: rgba(128,128,128,.25); border-radius: 4px; overflow: hidden; }
+#voiceCard .vc-level i { display: block; height: 100%; width: 0; background: #2e7d32; transition: width .06s; }
+#voiceCard .vc-time { font-variant-numeric: tabular-nums; min-width: 34px; }
+#voiceCard .vc-hint, #voiceCard .vc-note { font-size: 12.5px; opacity: .75; }
+#voiceCard .vc-heard { opacity: .7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#voiceCard .vc-spin { width: 14px; height: 14px; border: 2px solid #1f5fd1; border-right-color: transparent; border-radius: 50%; animation: vcs .8s linear infinite; }
+@keyframes vcs { to { transform: rotate(360deg); } }
+#voiceCard .vc-text { width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid #b8b8b2; background: transparent; color: inherit; resize: vertical; }
+#voiceCard .vc-modes { gap: 14px; font-size: 13px; }
+#voiceCard .vc-modes label.off { opacity: .5; }
+#voiceCard .vc-tgt { opacity: .8; }
+#voiceCard .vc-prev { padding: 8px 10px; border-radius: 8px; background: rgba(31,95,209,.08); font-size: 17px; overflow-x: auto; }
+#voiceCard .vc-old { opacity: .55; text-decoration: line-through; }
+#voiceCard .vc-err { color: #c62828; }
+
+/* shortcut bar (Ctrl+K) */
+#shortcutBar { position: fixed; right: 8px; top: 64px; z-index: 65; display: flex; flex-direction: column; gap: 3px; padding: 5px; max-height: calc(100vh - 84px); overflow-y: auto;
+  background: rgba(255,255,255,.94); border: 1px solid #c9c9c4; border-radius: 9px; box-shadow: 0 3px 14px rgba(0,0,0,.2); scrollbar-width: thin; }
+body[data-board="black"] #shortcutBar { background: rgba(30,36,33,.94); border-color: #3a4640; }
+#shortcutBar button { flex: none; width: 30px; height: 30px; padding: 0; border-radius: 5px; border: 1px solid #b8b8b2; background: transparent; color: inherit;
+  font: 700 11px ui-monospace, Consolas, monospace; cursor: pointer; }
+#shortcutBar button:hover { background: #1f5fd1; border-color: #1f5fd1; color: #fff; }
+#shortcutBar hr { width: 22px; margin: 2px auto; border: 0; border-top: 1px solid #b8b8b2; }
+/* shortcut bar groups: tools, pens, view and page, editing, other (a mild tint each) */
+#shortcutBar button[data-g="0"] { background: #e3edfb; border-color: #bfd2ee; }
+#shortcutBar button[data-g="1"] { background: #fbe6ef; border-color: #eec3d4; }
+#shortcutBar button[data-g="2"] { background: #e2f3e6; border-color: #bddcc5; }
+#shortcutBar button[data-g="3"] { background: #fbf1d9; border-color: #ead9a8; }
+#shortcutBar button[data-g="4"] { background: #ece5f8; border-color: #d3c7ea; }
+body[data-board="black"] #shortcutBar button[data-g="0"] { background: #26364d; border-color: #3a5273; }
+body[data-board="black"] #shortcutBar button[data-g="1"] { background: #4a2d3b; border-color: #6e4558; }
+body[data-board="black"] #shortcutBar button[data-g="2"] { background: #2a4231; border-color: #416650; }
+body[data-board="black"] #shortcutBar button[data-g="3"] { background: #4a4126; border-color: #6e6238; }
+body[data-board="black"] #shortcutBar button[data-g="4"] { background: #3b3252; border-color: #574a78; }
+#shortcutBar button[data-g]:hover { background: #1f5fd1; border-color: #1f5fd1; color: #fff; }
+/* the bar is scaled to fit (fitShortcutBar in app.js), never scrolled */
+#shortcutBar { max-height: none; overflow: visible; transform-origin: top right; }

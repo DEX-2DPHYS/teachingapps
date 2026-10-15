@@ -278,6 +278,16 @@ export class TextLayer {
     return t;
   }
 
+  // a finished box with "text with $maths$" (dictation); not left in edit mode. x, y: its top left
+  addWithText(x, y, text, w) {
+    const d = this.o.defaults() || {};
+    const t = { id: newId(), x: Math.round(x), y: Math.round(y), w: w ? Math.round(w) : null, font: d.font || 'sans', size: d.size || 32, color: d.color || 'auto', html: sanitize(latexToHtml(text)) };
+    this.texts.push(t);
+    this.render();
+    this.changed();
+    return t;
+  }
+
   edit(t, fresh) {
     this.editing = t;
     const el = this.els.get(t.id);

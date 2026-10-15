@@ -1,16 +1,17 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-09.1517';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-09.1517';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-09.1517';
-import { initSend } from './send.js?v=2026-10-09.1517';
-import { initStudent } from './student.js?v=2026-10-09.1517';
-import { initAssign } from './assign.js?v=2026-10-09.1517';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-09.1517';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-09.1517';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-09.1517';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-09.1517';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-15.0842';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-15.0842';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-15.0842';
+import { initSend } from './send.js?v=2026-10-15.0842';
+import { initStudent } from './student.js?v=2026-10-15.0842';
+import { initAssign } from './assign.js?v=2026-10-15.0842';
+import { initVoice } from './voice.js?v=2026-10-15.0842';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-15.0842';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-15.0842';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-15.0842';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-15.0842';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -813,6 +814,8 @@ applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the ke
     { icon: '＋', tip: 'Zoom in (Ctrl + wheel)', run: () => board.setZoom(board.zoom * 1.2) },
     { icon: '⤢', tip: 'Fit the page to the width', run: () => board.setZoom(1) },
     { icon: '−', tip: 'Zoom out (Ctrl + wheel)', run: () => board.setZoom(board.zoom / 1.2) },
+    { icon: '🎤', tip: 'Voice input (V): speak to write text or to correct a region', run: () => voice.toggle() },
+    { icon: '🔍', tip: 'Zoom to an area (Z): drag a frame, write precisely, Z or Esc zooms back', run: () => roiToggle() },
     null,
     { icon: '◀', tip: 'Previous page (←)', run: () => state.cur > 0 && gotoPage(state.cur - 1) },
     { label: () => `${state.cur + 1}/${state.pages.length}`, tip: 'Page (▦ Pages → Overview)' },
@@ -1525,7 +1528,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-09.1517');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-15.0842');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1799,9 +1802,10 @@ async function evaluateBlock(b, mode = questionOf(b) || 'calc', explicit = false
   b.answer = { status: 'busy', mode, expr: key, explicit };
   renderAll();
   try {
+    // b.ansForm: 'numeric' | 'symbolic', chosen with the chip beside the answer; else the question decides
     const body = mode === 'ai'
-      ? { task: 'solve', model: heavyModel(), expr, context: contextFor(b, page) }
-      : { task: 'evaluate', model: settings.finalModel, expr, context: contextFor(b, page), force: { num: 'numeric', sym: 'symbolic' }[mode] };
+      ? { task: 'solve', model: heavyModel(), expr, context: contextFor(b, page), force: b.ansForm }
+      : { task: 'evaluate', model: settings.finalModel, expr, context: contextFor(b, page), force: b.ansForm || { num: 'numeric', sym: 'symbolic' }[mode] };
     const r = await api(body);
     if (b.ansVersion !== ver) return;
     b.answer = { status: 'ok', mode, expr: key, data: r.data, ms: r.ms, explicit, model: body.model };
@@ -1964,9 +1968,40 @@ function renderAnswers(list) {
         el.style.top = (abox.y0 * s + (bh - el.offsetHeight) / 2) + 'px';
       }
     } else {
-      if (el.classList.contains('page-answer')) el.style.fontSize = Math.max(16, Math.min(40, h * 0.6)) + 'px';
-      el.style.left = (box.x1 * s + 10) + 'px';
-      el.style.top = (box.y0 * s + (h - el.offsetHeight) / 2) + 'px';
+      const isAns = el.classList.contains('page-answer');
+      if (isAns) el.style.fontSize = Math.max(16, Math.min(32, (box.y1 - box.y0) * 0.3)) * s + 'px';
+      let left = box.x1 * s + 10, k = 1, under = false;
+      if (isAns) {
+        // a long answer shrinks to fit the page edge; if that would make it tiny, it moves to the
+        // left margin, under the question, and shrinks from there
+        const pw = board.pageW * s, ph = board.pageH * s, room = x => (pw - x - 8) / el.offsetWidth;
+        k = Math.min(1, room(left));
+        if (k < 0.6) {
+          // under the question, as far left as needed to keep it at 60% or more (never past the margin)
+          left = Math.max(8, Math.min(box.x0 * s, pw - 8 - 0.6 * el.offsetWidth));
+          under = true; k = Math.min(1, room(left));
+        }
+        k = Math.max(0.3, k);
+        if (k < 1) { el.style.transformOrigin = '0 0'; el.style.transform = `scale(${k})`; }
+        if (under) el.dataset.top = Math.min(box.y1 * s + 4, ph - el.offsetHeight * k - 4);
+      }
+      el.style.left = left + 'px';
+      el.style.top = (under ? +el.dataset.top : box.y0 * s + (h - el.offsetHeight * k) / 2) + 'px';
+    }
+    // a small switch beside a finished answer: the other form (analytical <-> numeric), asked again
+    if (v && v.latex && el.classList.contains('page-answer')) {
+      const a = b.answer;
+      const cur = b.ansForm || (a.mode === 'ai' ? 'symbolic' : a.data?.kind === 'numeric' ? 'numeric' : 'symbolic');
+      const to = cur === 'numeric' ? 'symbolic' : 'numeric';
+      const chip = document.createElement('button');
+      chip.className = 'form-chip';
+      chip.textContent = to === 'numeric' ? '⇄ numeric' : '⇄ analytical';
+      chip.title = `Now ${cur === 'numeric' ? 'a number' : 'the analytical form'}: tap for ${to === 'numeric' ? 'the numerical value' : 'the analytical (exact) form'}${a.mode === 'ai' ? ' (the AI works it out again)' : ''}`;
+      chip.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); b.ansForm = to; evaluateBlock(b, questionOf(b) || a.mode, true); });
+      layer.appendChild(chip);
+      const r = el.getBoundingClientRect(), lr = layer.getBoundingClientRect();
+      chip.style.left = Math.min(lr.width - chip.offsetWidth - 4, r.right - lr.left + 6) + 'px';
+      chip.style.top = Math.max(2, r.top - lr.top - 4) + 'px';
     }
   }
 }
@@ -3101,7 +3136,7 @@ function answerSpots(p) {
         const size = Math.max(18, Math.min(56, (abox.y1 - abox.y0) * 0.5));
         out.push({ latex: v.latex, cls: v.cls, size, x: abox.x0 + 8, y: abox.y0 + ((abox.y1 - abox.y0) - size * 1.25) / 2 });
       } else {
-        const h = box.y1 - box.y0, size = Math.max(20, Math.min(60, h * 0.6));
+        const h = box.y1 - box.y0, size = Math.max(16, Math.min(32, h * 0.3));
         out.push({ latex: v.latex, cls: v.cls, size, x: box.x1 + 10, y: box.y0 + (h - size * 1.25) / 2 });
       }
     } catch { /* a block of a saved page that cannot be placed: leave it out */ }
@@ -3581,7 +3616,7 @@ const SHORTCUTS = [
   ['Page', [['Space (hold)', 'Preview: the transcriptions in place of the ink'], ['B', 'Region boxes: all / current / off'],
     ['I', 'Use the HTML on this page / write on it'], ['N', 'Next region that needs attention'], ['← → / PgUp PgDn', 'Previous / next page'], ['Enter', 'Answer the question under the pen']]],
   ['Editing', [['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+G', 'Group the selection'], ['Ctrl+Shift+G', 'Ungroup'], ['Ctrl+D', 'Duplicate the selection (again: the same step once more)'], ['Ctrl+X / C / V', 'Cut / copy / paste ink (also to another page)'], ['Delete', 'Delete the selection'], ['Esc', 'Deselect, close a popup']]],
-  ['Other', [['K', 'This list'], ['Ctrl+P', 'Print'], ['Ctrl+Shift+D', 'Diagnostics']]],
+  ['Other', [['K', 'This list'], ['Ctrl+K', 'Shortcut bar: the keys as buttons (again: away)'], ['Z', 'Zoom to an area (drag a frame); Z or Esc zooms back'], ['V', 'Voice input: speak to write text or correct a region'], ['Ctrl+P', 'Print'], ['Ctrl+Shift+D', 'Diagnostics']]],
 ];
 function toggleKeys() {
   if ($('#keysDlg')) { $('#keysDlg').remove(); return; }
@@ -3615,7 +3650,7 @@ $('#boardToggle').addEventListener('click', () => { settings.board = settings.bo
 applyBoard();
 
 // zoom: < 100% shows the page smaller, giving more room for the same hand movements
-board.onZoom = z => { $('#zoomReset').textContent = Math.round(z * 100) + '%'; settings.zoom = z; saveSettings(); };
+board.onZoom = z => { $('#zoomReset').textContent = Math.round(z * 100) + '%'; if (!roiBack) { settings.zoom = z; saveSettings(); } };
 $('#zoomOut').addEventListener('click', () => board.setZoom(board.zoom / 1.2));
 $('#zoomIn').addEventListener('click', () => board.setZoom(board.zoom * 1.2));
 $('#zoomReset').addEventListener('click', () => board.setZoom(1));
@@ -3835,8 +3870,42 @@ function renderModelSummary() {
   const h = document.getElementById('heavyModelNow');
   if (h) h.textContent = `= ⊜ AI: ${n(heavyModel())} · Redraw: ${n(figureModel())}`;
 }
+// Settings → AI → API keys (local server only): write-only fields, the server answers with the last four characters
+const KEY_ROWS = [['anthropic', 'Claude (Anthropic)'], ['mistral', 'Mistral'], ['openai', 'ChatGPT (OpenAI)']];
+function keyHeaders() { const h = { 'Content-Type': 'application/json' }; if (TOKEN) h['x-ink-token'] = TOKEN; return h; }
+async function renderLocalKeys() {
+  const box = document.getElementById('localKeys');
+  if (!box || AI_CLOUD) return;
+  let st;
+  try { const r = await fetch('/api/keys', { headers: keyHeaders() }); if (!r.ok) return; st = await r.json(); } catch { return; } // an older server has no key store
+  box.hidden = false;
+  const rows = document.getElementById('localKeyRows');
+  rows.innerHTML = KEY_ROWS.map(([id, label]) => {
+    const s = st[id] || {};
+    const state = s.set ? `<span title="${s.source === 'settings' ? 'saved here, encrypted' : 'from the Windows environment (setx); a key saved here would take its place'}">••••••••${esc(s.last4)}${s.source === 'environment' ? ' (setx)' : ''}</span>` : '<span class="dim">no key</span>';
+    return `<div class="row" data-eng="${id}"><span>${label}</span> ${state}
+      <input type="password" autocomplete="off" spellcheck="false" placeholder="${s.set ? 'paste a new key to replace it' : 'paste your API key'}">
+      <button class="keySave">Save</button>${s.set && s.source === 'settings' ? ' <button class="keyDel" title="Remove the saved key">Remove</button>' : ''}</div>`;
+  }).join('');
+  rows.querySelectorAll('.row').forEach(row => {
+    const eng = row.dataset.eng, inp = row.querySelector('input');
+    const send = async key => {
+      try {
+        const r = await fetch('/api/keys', { method: 'POST', headers: keyHeaders(), body: JSON.stringify({ engine: eng, key }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.status);
+        inp.value = '';
+        toast(key ? 'Key saved (stored encrypted)' : 'Saved key removed');
+        checkEngines();
+      } catch (err) { toast('Key not saved: ' + err.message); }
+    };
+    row.querySelector('.keySave').addEventListener('click', () => { if (inp.value.trim()) send(inp.value.trim()); else toast('Paste a key first'); });
+    row.querySelector('.keyDel')?.addEventListener('click', () => send(''));
+  });
+}
 function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
   if (e.error) throw new Error(e.error);
+  renderLocalKeys();
   coreFeatures = e.features || {}; // an older AI core reports none: no grey context, no page reading
   // models this AI server knows (an older one does not say: then the models added since are left out)
   serverModels = new Set(e.models || Object.keys(MODELS).filter(k => !NEWER_MODELS.includes(k)));
@@ -3852,14 +3921,16 @@ function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
     for (const g of $('#' + id).querySelectorAll('optgroup')) {
       const on = !!e[g.dataset.engine];
       g.disabled = !on;
+      g.label = g.label.replace(' (no API key)', '');
       if (!on) g.label += ' (no API key)';
     }
   }
   const keyName = { claude: 'ANTHROPIC_API_KEY', mistral: 'MISTRAL_API_KEY', openai: 'OPENAI_API_KEY' };
   $('#engineStatus').innerHTML = 'Engines: ' + Object.entries(ENGINES)
-    .map(([k, label]) => e[k] ? `${label} ✓` : `${label} <span title="set ${keyName[k]} and restart the server">(no API key)</span>`).join(' · ')
+    .map(([k, label]) => e[k] ? `${label} ✓` : `${label} <span title="${AI_CLOUD ? 'no key on the cloud server' : 'paste the key in Settings → AI → API keys'}">(no API key)</span>`).join(' · ')
     + (AI_CLOUD ? ' · in the cloud' : ' · local server')
     + (e.student ? '<br>' + studentRulesText(e.student) : '');
+  studentRules = e.student || null;
   if (e.student) {
     student?.setRules(e.student);
     if (e.student.pay !== 'own' && e.student.models) {
@@ -4000,12 +4071,16 @@ document.addEventListener('keydown', e => {
   if (e.target.isContentEditable || (e.target.closest && e.target.closest('textarea, input, select'))) return;
   if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat && !previewDown) previewPress(); return; } // Space: hold = preview while held, tap = on until the next tap
   const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && k === 'k') { e.preventDefault(); if (!e.repeat) toggleShortcutBar(); return; } // Ctrl+K: the shortcut bar
   if (!e.ctrlKey && !e.metaKey && !e.altKey) {
     // pen palettes (held keys) and the shortcut list
     if (k === 'c') { e.preventDefault(); penKeyDown('c', 'style'); return; }
     if (k === 'r') { e.preventDefault(); penKeyDown('r', 'recall'); return; }
     if (k === 's') { e.preventDefault(); penKeyDown('s', 'store', 250); return; }
     if (k === 'k') { e.preventDefault(); if (!e.repeat) toggleKeys(); return; }
+    if (k === 'z') { e.preventDefault(); if (!e.repeat) roiToggle(); return; }
+    if (k === 'v') { e.preventDefault(); if (!e.repeat) voice.toggle(); return; }
+    if (k === 'escape' && (roiOn || roiBack)) { e.preventDefault(); if (roiOn) roiSet(false); else roiOut(); return; }
     if (penPop && penPop.dataset.mode !== 'style' && /^[1-5]$/.test(k)) { e.preventDefault(); chooseSlot(Number(k) - 1); return; }
     // 1-5 on their own: switch straight to that stored pen (hold R to see what is where)
     if (!penPop && /^[1-5]$/.test(k)) { e.preventDefault(); recallSlot(Number(k) - 1); return; }
@@ -4050,6 +4125,171 @@ document.addEventListener('keydown', e => {
 // Space up ends the preview (and must not also click whatever button has focus)
 document.addEventListener('keyup', e => { if (e.key === ' ' && (previewHeld || previewDown)) { e.preventDefault(); previewRelease(); } });
 
+// ----------------------------------------------------------------------------------- zoom to an area
+// Z (or 🔍 in the tool bar): drag a frame round what to magnify; the board zooms to it, the tool stays as
+// it was, so you can write precisely. ⤺ Zoom out (Z, Esc) goes back to the zoom and place before.
+// The temporary zoom is not saved as the zoom setting.
+var roiOn = false, roiBack = null; // var: board.setZoom runs earlier at start-up
+const boardWrap = $('#sheet').parentElement;
+const roiLayer = document.createElement('div');
+roiLayer.id = 'roiLayer';
+roiLayer.innerHTML = '<div class="roi-frame" hidden></div>';
+$('#sheet').appendChild(roiLayer);
+const roiFrame = roiLayer.firstChild;
+const roiChip = document.createElement('button');
+roiChip.id = 'roiOut'; roiChip.hidden = true; roiChip.textContent = '⤺ Zoom out'; roiChip.title = 'Back to the view before the zoom (Z or Esc)';
+document.body.appendChild(roiChip);
+roiChip.addEventListener('click', () => roiOut());
+
+function roiSet(on) {
+  roiOn = on;
+  roiLayer.style.display = on ? 'block' : 'none';
+  roiFrame.hidden = true;
+  if (on) toast('Drag a frame round the area to magnify (Esc cancels)');
+}
+function roiOut() {
+  roiSet(false);
+  if (!roiBack) return;
+  const b = roiBack; roiBack = null;
+  board.setZoom(b.zoom);
+  boardWrap.scrollLeft = b.left; boardWrap.scrollTop = b.top;
+  roiChip.hidden = true;
+}
+function roiZoomTo(x0, y0, x1, y1) { // page units
+  const w = Math.max(20, x1 - x0), h = Math.max(20, y1 - y0), s0 = board.s / board.zoom;
+  const sNew = Math.min((boardWrap.clientWidth - 40) / w, (boardWrap.clientHeight - 40) / h);
+  if (!roiBack) roiBack = { zoom: board.zoom, left: boardWrap.scrollLeft, top: boardWrap.scrollTop };
+  board.setZoom(sNew / s0);
+  const sr = $('#sheet').getBoundingClientRect(), wr = boardWrap.getBoundingClientRect(), s = board.s;
+  boardWrap.scrollLeft += sr.left - wr.left + (x0 + x1) / 2 * s - boardWrap.clientWidth / 2;
+  boardWrap.scrollTop += sr.top - wr.top + (y0 + y1) / 2 * s - boardWrap.clientHeight / 2;
+  roiChip.hidden = false;
+}
+{
+  let a = null;
+  const pos = e => { const r = $('#sheet').getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  roiLayer.addEventListener('pointerdown', e => { e.preventDefault(); roiLayer.setPointerCapture(e.pointerId); a = pos(e); });
+  roiLayer.addEventListener('pointermove', e => {
+    if (!a) return;
+    const [x, y] = pos(e);
+    Object.assign(roiFrame.style, { left: Math.min(a[0], x) + 'px', top: Math.min(a[1], y) + 'px', width: Math.abs(x - a[0]) + 'px', height: Math.abs(y - a[1]) + 'px' });
+    roiFrame.hidden = false;
+  });
+  const end = e => {
+    if (!a) return;
+    const [x, y] = pos(e), a0 = a; a = null; roiFrame.hidden = true;
+    if (Math.abs(x - a0[0]) < 12 || Math.abs(y - a0[1]) < 12) return; // a tap: keep waiting for a frame
+    roiSet(false);
+    const s = board.s;
+    roiZoomTo(Math.min(a0[0], x) / s, Math.min(a0[1], y) / s, Math.max(a0[0], x) / s, Math.max(a0[1], y) / s);
+  };
+  roiLayer.addEventListener('pointerup', end);
+  roiLayer.addEventListener('pointercancel', () => { a = null; roiFrame.hidden = true; });
+}
+function roiToggle() { if (roiOn) roiSet(false); else if (roiBack) roiOut(); else roiSet(true); }
+
+// ----------------------------------------------------------------------------------- voice input
+// 🎤 / V: speak to write text on the board or to correct a region (voice.js). The target of a
+// correction: the region under the pen (or where the pen was a moment ago), else the selected
+// region, else the one written last.
+var studentRules; // set by checkEngines (var: that runs before this point)
+let lastHover = null;
+{ const h0 = board.onHover; board.onHover = p => { if (p) lastHover = { p, t: Date.now() }; h0(p); }; }
+function voiceTarget() {
+  const page = curPage();
+  const hov = board.hover || (lastHover && Date.now() - lastHover.t < 20000 ? lastHover.p : null);
+  let b = hov && regionAt(hov)?.b;
+  if (!b && board.sel) b = page.blocks.find(x => x.strokeIds.some(i => board.sel.ids.has(i)));
+  if (!b) { const last = page.strokes.at(-1); b = last && page.blocks.find(x => x.strokeIds.includes(last.id)); }
+  if (!b || !b.result || !['math', 'mixed', 'text'].includes(b.result.kind) || b.status === 'busy') return null;
+  return { b, kind: b.result.kind === 'math' ? 'math' : 'text', source: String(sourceOf(b)), box: blockBox(b) };
+}
+function voicePlace() { // page units: at the pen if it was just there, else the top left of what is in view
+  if (lastHover && Date.now() - lastHover.t < 20000) return lastHover.p;
+  const sr = $('#sheet').getBoundingClientRect(), wr = boardWrap.getBoundingClientRect(), s = board.s;
+  return [Math.max(40, (wr.left - sr.left) / s + 40), Math.max(40, (wr.top - sr.top) / s + 60)];
+}
+const voice = initVoice({
+  api, toast, esc, settings, saveSettings,
+  allowed: () => {
+    if (settings.aiOff) return { ok: false, why: 'The AI is off: switch it on (AI in the menu line) to use voice input' };
+    if (studentRules && studentRules.features?.voice === false) return { ok: false, why: 'Your lecturer has not switched on voice input for this course' };
+    if (Object.keys(coreFeatures).length && !coreFeatures.voice) return { ok: false, why: 'The AI service is older than the board and has no voice input yet: update the cloud function (deploy-ai.cmd) or restart DTUwrite' };
+    return { ok: true };
+  },
+  target: voiceTarget,
+  context: (b) => contextFor(b, b ? pageOf(b) : curPage()),
+  highlight: box => { board.highlight = box; board.request(); },
+  tex: (s, display) => tex(s, display),
+  mixed: s => renderMixed(s),
+  insertText: text => {
+    const [x, y] = voicePlace();
+    const w = Math.max(240, Math.min(900, board.pageW - x - 40));
+    textLayer.addWithText(x, y, text, w);
+  },
+  applyFix: (t, src) => {
+    rememberOriginal(t.b);
+    t.b.edit = src;
+    renderAll();
+    maybeEvaluate(t.b);
+    saveSoon();
+  },
+});
+
+// ----------------------------------------------------------------------------------- shortcut bar
+// Ctrl+K: a vertical bar of square buttons, one per keyboard shortcut, labelled with its key
+// (c- = Ctrl, s- = Shift); hovering says what it does; a click does what the key does; Ctrl+K again
+// takes it away. Only keys are in it: the buttons of the tool bar are not.
+const SHORTCUT_BAR = [
+  ['P', 'Pen / laser pointer'], ['E', 'Eraser: whole strokes'], ['X', 'Eraser: only what it touches'], ['T', 'Text box'], ['S', 'Select (hold S: store the pen)'],
+  ['F', 'Paint bucket'], null,
+  ['C', 'Pen palette: colour, see-through, dashed, width'], ['R', 'Recall a stored pen'], ['1', 'Stored pen 1'], ['2', 'Stored pen 2'], ['3', 'Stored pen 3'], ['4', 'Stored pen 4'], ['5', 'Stored pen 5'], null,
+  ['Z', 'Zoom to an area (drag a frame); Z or Esc zooms back'], ['V', 'Voice input: speak to write or correct'], ['B', 'Region boxes: all / current / off'], ['I', 'Use the HTML on this page / write on it'],
+  ['N', 'Next region that needs attention'], [' ', 'Preview: the transcriptions in place of the ink (tap: stays on until the next tap)', 'Space'], null,
+  ['Z', 'Undo', 'c-Z', { ctrlKey: true }], ['Y', 'Redo', 'c-Y', { ctrlKey: true }], ['D', 'Duplicate the selection', 'c-D', { ctrlKey: true }],
+  ['X', 'Cut the selection', 'c-X', { ctrlKey: true }], ['C', 'Copy the selection', 'c-C', { ctrlKey: true }],
+  ['G', 'Group the selection', 'c-G', { ctrlKey: true }], ['G', 'Ungroup', 'c-s-G', { ctrlKey: true, shiftKey: true }], null,
+  ['P', 'Print / PDF', 'c-P', { ctrlKey: true }], ['K', 'The list of all shortcuts'],
+];
+function toggleShortcutBar(force) {
+  let bar = $('#shortcutBar');
+  const on = force ?? !bar;
+  if (!on) { bar?.remove(); window.removeEventListener('resize', fitShortcutBar); settings.shortcutBar = false; saveSettings(); return; }
+  if (bar) return;
+  bar = document.createElement('div');
+  bar.id = 'shortcutBar';
+  bar.setAttribute('aria-label', 'Shortcut bar');
+  let group = 0; // the groups (separated by null above) each get a pastel tint: data-g
+  bar.innerHTML = SHORTCUT_BAR.map(r => {
+    if (!r) { group++; return '<hr>'; }
+    const [key, tip, label, mods] = r;
+    const shown = label || (key === ' ' ? 'Space' : key);
+    return `<button data-g="${group}" data-key="${esc(key)}" data-mods="${esc(JSON.stringify(mods || {}))}" title="${esc(`${tip} (${shown === 'Space' ? 'Space' : shown.replace(/^c-s-/, 'Ctrl+Shift+').replace(/^c-/, 'Ctrl+')})`)}">${esc(shown === 'Space' ? '␣' : shown)}</button>`;
+  }).join('');
+  document.body.appendChild(bar);
+  // a click acts as the key pressed and let go; the board keeps its focus and its pen
+  bar.addEventListener('pointerdown', e => e.preventDefault());
+  bar.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const key = b.dataset.key, mods = JSON.parse(b.dataset.mods);
+    for (const type of ['keydown', 'keyup']) document.dispatchEvent(new KeyboardEvent(type, { key: mods.shiftKey ? key.toUpperCase() : key, bubbles: true, cancelable: true, ...mods }));
+  });
+  window.addEventListener('resize', fitShortcutBar);
+  fitShortcutBar();
+  settings.shortcutBar = true; saveSettings();
+}
+// never a scrollbar: the whole bar is scaled down (from its top right corner) to the height of the window
+function fitShortcutBar() {
+  const bar = $('#shortcutBar');
+  if (!bar) return;
+  bar.style.transform = '';
+  const top = bar.getBoundingClientRect().top, room = window.innerHeight - top - 10;
+  const k = Math.min(1, room / bar.offsetHeight);
+  if (k < 1) bar.style.transform = `scale(${Math.max(0.3, k)})`;
+}
+if (settings.shortcutBar) toggleShortcutBar(true);
+
 // ----------------------------------------------------------------------------------- start
 board.setPage(curPage());
 renderAll();
@@ -4078,7 +4318,7 @@ assign = initAssign({ settings, saveSettings, state, boardData: () => serialize(
   uploadPending: uploadPendingImages, saveNow });
 sessionReady.then(() => { if (!student.active()) assign.sync(); }); // a hand-in under review: its bar
 function studentRulesText(r) {
-  const names = { ink: 'transcription', calc: '= ?', sym: '= ?S', solve: '= ?AI', latex: '∑ LaTeX', coach: 'coach' };
+  const names = { ink: 'transcription', calc: '= ?', sym: '= ?S', solve: '= ?AI', latex: '∑ LaTeX', coach: 'coach', voice: 'voice input' };
   const on = Object.entries(r.features || {}).filter(([, v]) => v).map(([k]) => names[k]).filter(Boolean);
   const name = v => [...document.querySelectorAll('#liveModel option')].find(o => o.value === v)?.textContent || v;
   const models = r.pay !== 'own' && r.models ? ` · models: ${name(r.models.live)} (live), ${name(r.models.final)} (final)` : '';
@@ -4127,8 +4367,8 @@ async function loadStudentSettings() {
   const lec = settings.sendLecture, form = $('#stuForm');
   const cs = lec && await send?.courseSettings(lec.course_code).catch(() => null);
   if (!lec || cs === null) { form.hidden = true; $('#stuCourse').textContent = lec ? 'Sign in under 📡 Send to set the rules for students.' : 'Choose a lecture under 📡 Send first: these rules are per course.'; return; }
-  const r = { features: { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false }, daily_limit: 0.2, pay: 'course', coaching: '', ...(cs || {}) };
-  r.features = { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false, ...(cs?.features || {}) };
+  const r = { features: { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false, voice: true }, daily_limit: 0.2, pay: 'course', coaching: '', ...(cs || {}) };
+  r.features = { ink: true, calc: true, sym: false, solve: false, latex: true, coach: false, voice: true, ...(cs?.features || {}) };
   r.models = { live: 'mistral-small', final: 'mistral-large', ...(cs?.models || {}) };
   // the same model list as the board's own Live / Final menus
   for (const [id, v] of [['#stuLive', r.models.live], ['#stuFinal', r.models.final]]) {

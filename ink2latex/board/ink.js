@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize, liveShape } from './shapes.js?v=2026-10-09.1517';
+import { recognize, liveShape } from './shapes.js?v=2026-10-15.0842';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -356,7 +356,7 @@ export class Board {
   }
 
   setZoom(z) {
-    this.zoom = Math.max(0.3, Math.min(3, z));
+    this.zoom = Math.max(0.3, Math.min(8, z));
     this.resize();
     this.onZoom?.(this.zoom);
   }
