@@ -1,17 +1,17 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-15.0904';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-15.0904';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-15.0904';
-import { initSend } from './send.js?v=2026-10-15.0904';
-import { initStudent } from './student.js?v=2026-10-15.0904';
-import { initAssign } from './assign.js?v=2026-10-15.0904';
-import { initVoice } from './voice.js?v=2026-10-15.0904';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-15.0904';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-15.0904';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-15.0904';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-15.0904';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-15.0918';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-15.0918';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-15.0918';
+import { initSend } from './send.js?v=2026-10-15.0918';
+import { initStudent } from './student.js?v=2026-10-15.0918';
+import { initAssign } from './assign.js?v=2026-10-15.0918';
+import { initVoice } from './voice.js?v=2026-10-15.0918';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-15.0918';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-15.0918';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-15.0918';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-15.0918';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1528,7 +1528,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-15.0904');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-15.0918');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -3903,8 +3903,10 @@ async function renderLocalKeys() {
     row.querySelector('.keyDel')?.addEventListener('click', () => send(''));
   });
 }
+let enginesOn = {}; // which engines have a key (from the last checkEngines)
 function checkEngines() { return aiFetch('GET').then(r => r.json()).then(e => {
   if (e.error) throw new Error(e.error);
+  enginesOn = e;
   renderLocalKeys();
   coreFeatures = e.features || {}; // an older AI core reports none: no grey context, no page reading
   // models this AI server knows (an older one does not say: then the models added since are left out)
@@ -4219,7 +4221,8 @@ const voice = initVoice({
   },
   // "✦ Do as I say": the AI writes named content, like = ?AI (students need that right)
   canAsk: () => (studentRules && studentRules.features?.solve === false) ? 'Your lecturer has not switched on AI solutions for this course' : '',
-  askModel: () => heavyModel(),
+  // Opus whenever there is a Claude key: Mistral gave wrong named results while "confident" (test 2026-10-15)
+  askModel: () => (!studentRules && enginesOn.claude ? 'opus' : heavyModel()), // students: the cloud function decides
   target: voiceTarget,
   context: (b) => contextFor(b, b ? pageOf(b) : curPage()),
   highlight: box => { board.highlight = box; board.request(); },
