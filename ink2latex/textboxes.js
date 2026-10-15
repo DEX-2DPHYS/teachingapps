@@ -92,6 +92,29 @@ export function fillMath(root) {
       : 'Typeset maths. Double-click (while editing) to get the typed text back.';
   }
 }
+// LaTeX typed (or brought back by a double-click) as $...$ / $$...$$ in the text of a box -> typeset maths
+// spans. TeX's rule for money: "$" must be followed by a non-space and the closing "$" preceded by one and not
+// followed by a digit, so "costs $5 and $10" stays text. Returns whether anything changed.
+const DOLLAR_MATH = /(\$\$[^$]+?\$\$|\$(?=\S)[^$\n]*?\S\$(?!\d))/;
+function typesetDollars(root) {
+  root.normalize();
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.parentElement.closest('.tx-math, .tx-answer') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  const nodes = [];
+  for (let n; (n = walker.nextNode());) if (DOLLAR_MATH.test(n.data)) nodes.push(n);
+  for (const n of nodes) {
+    const frag = document.createDocumentFragment();
+    for (const p of n.data.split(new RegExp(DOLLAR_MATH.source, 'g'))) {
+      if (!p) continue;
+      if (DOLLAR_MATH.test(p) && p.match(DOLLAR_MATH)[0] === p) {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = latexToHtml(p);
+        frag.appendChild(tpl.content);
+      } else frag.appendChild(document.createTextNode(p));
+    }
+    n.replaceWith(frag);
+  }
+  return nodes.length > 0;
+}
 // "text with $maths$" -> box HTML: text escaped, maths as spans; src = the typed text of a single formula
 function latexToHtml(s, src) {
   return String(s).split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g).map(p => {
@@ -324,6 +347,7 @@ export class TextLayer {
       const c = el.firstChild;
       c.contentEditable = 'false';
       c.oninput = c.onkeydown = c.onpaste = null;
+      if (typesetDollars(c)) fillMath(c); // edited LaTeX source ($...$) is drawn again
       t.html = sanitize(c.innerHTML);
     }
     if (!plainText(t.html).trim()) { this.remove(t); return; }
@@ -540,7 +564,8 @@ export class TextLayer {
   unconvert(m) {
     const c = this.content();
     if (!c || !c.contains(m)) return;
-    const tn = document.createTextNode(m.dataset.src || m.dataset.tex);
+    // typed text that ∑ converted comes back as typed; LaTeX comes back as $...$, drawn again when editing ends
+    const tn = document.createTextNode(m.dataset.src || `$${m.dataset.tex}$`);
     m.replaceWith(tn);
     const r = document.createRange();
     r.setStartAfter(tn); r.collapse(true);

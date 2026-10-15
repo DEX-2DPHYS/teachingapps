@@ -141,12 +141,14 @@ export function initVoice(d) {
         if (mode === 'write') { S.mode = 'write'; S.result = { write: S.dict }; }
         else if (askWhy) { S.mode = 'ask'; S.result = { error: askWhy }; }
         else {
+          const len = settings.askLength === 'extended' ? 'extended' : 'short';
+          if (S.composedLen !== len) S.composed = null;
           if (!S.composed) {
             const request = (S.dict.request || '').trim() || S.transcript;
             S.msg = 'Doing what you asked…'; S.mode = 'ask'; render();
-            const j = await api({ task: 'compose', model: d.askModel?.() || settings.finalModel, speech: request, lang: lg, context: d.context(null) });
+            const j = await api({ task: 'compose', model: d.askModel?.() || settings.finalModel, kind: len, speech: request, lang: lg, context: d.context(null) });
             if (S?.seq !== my) return;
-            S.composed = j.data;
+            S.composed = j.data; S.composedLen = len;
           }
           S.mode = 'ask'; S.result = { write: S.composed, asked: true };
         }
@@ -194,6 +196,7 @@ export function initVoice(d) {
         <div class="vc-row vc-modes">
           <label title="Write down what you said (maths in words becomes formulas)"><input type="radio" name="vcm" value="write"${S.mode === 'write' ? ' checked' : ''}> ✎ Write as text</label>
           <label title="Carry out what you said: 'insert the Hencky solution for …' – the AI writes the named content"><input type="radio" name="vcm" value="ask"${S.mode === 'ask' ? ' checked' : ''}> ✦ Do as I say</label>
+          ${S.mode === 'ask' ? `<span class="vc-len" title="Short: just the formula. Extended: with what the symbols mean and when it holds."><label><input type="radio" name="vclen" value="short"${settings.askLength !== 'extended' ? ' checked' : ''}> Short</label><label><input type="radio" name="vclen" value="extended"${settings.askLength === 'extended' ? ' checked' : ''}> Extended</label></span>` : ''}
           <label class="${t ? '' : 'off'}"><input type="radio" name="vcm" value="fix"${S.mode === 'fix' ? ' checked' : ''}${t ? '' : ' disabled'}> ✏ Correct the region${t ? ` <span class="vc-tgt">${preview(t.kind, t.source.slice(0, 80))}</span>` : ' (hover the pen over one first)'}</label>
         </div>${body}
         <div class="vc-row"><button class="vc-main" data-a="apply"${can ? '' : ' disabled'} title="Enter">${S.mode === 'fix' ? 'Apply' : 'Insert'}</button>
@@ -213,6 +216,7 @@ export function initVoice(d) {
     if (!card || !card.contains(e.target)) return;
     if (e.target.classList.contains('vc-lang')) { settings.voiceLang = e.target.value; saveSettings(); }
     else if (e.target.name === 'vcm' && S) { S.mode = e.target.value; S.auto = false; run(); }
+    else if (e.target.name === 'vclen' && S) { settings.askLength = e.target.value; saveSettings(); S.mode = 'ask'; S.auto = false; run(); }
     else if (e.target.classList.contains('vc-text') && S && S.transcript !== e.target.value.trim() && e.target.value.trim()) {
       S.transcript = e.target.value.trim();
       if (S.auto) S.mode = S.target ? 'auto' : 'write';
