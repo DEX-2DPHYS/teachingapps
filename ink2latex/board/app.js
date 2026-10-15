@@ -1,17 +1,17 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-15.1045';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-15.1045';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-15.1045';
-import { initSend } from './send.js?v=2026-10-15.1045';
-import { initStudent } from './student.js?v=2026-10-15.1045';
-import { initAssign } from './assign.js?v=2026-10-15.1045';
-import { initVoice } from './voice.js?v=2026-10-15.1045';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-15.1045';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-15.1045';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-15.1045';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-15.1045';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-15.1149';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-15.1149';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-15.1149';
+import { initSend } from './send.js?v=2026-10-15.1149';
+import { initStudent } from './student.js?v=2026-10-15.1149';
+import { initAssign } from './assign.js?v=2026-10-15.1149';
+import { initVoice } from './voice.js?v=2026-10-15.1149';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-15.1149';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-15.1149';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-15.1149';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-15.1149';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -233,6 +233,24 @@ function setOrientation(o) {
   $('#orientation').value = o;
   board.setPageSize(o);
 }
+// a PowerPoint file: the local server has PowerPoint save it as PDF (tools/pptx2pdf.ps1), then as any slides PDF
+async function importPowerPoint(file) {
+  if (AI_CLOUD) { toast('PowerPoint files need DTUwrite running on your PC (with PowerPoint). Here: save the slides as PDF in PowerPoint and import that.'); return; }
+  toast(`PowerPoint is converting ${file.name}…`);
+  try {
+    const headers = { 'Content-Type': 'application/octet-stream', 'x-filename': encodeURIComponent(file.name) };
+    if (TOKEN) headers['x-ink-token'] = TOKEN;
+    const r = await fetch('/api/pptx2pdf', { method: 'POST', headers, body: file });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(r.status === 404 || r.status === 405 ? 'this DTUwrite server is older: close the DTUwrite window and start it again' : (j.error || r.status));
+    }
+    const pdf = await r.blob();
+    await importSlides(new File([pdf], file.name.replace(/\.(pptx|ppt)$/i, '.pdf'), { type: 'application/pdf' }));
+  } catch (err) {
+    toast('Could not import the PowerPoint file: ' + (err.message || err));
+  }
+}
 async function importSlides(file) {
   toast('Reading the slides…');
   let imgs;
@@ -349,7 +367,7 @@ document.addEventListener('pointerdown', e => {
     $({ slides: '#pdfInput', figure: '#figInput', html: '#htmlInput', photo: '#photoInput' }[b.dataset.fig]).click();
   });
   document.addEventListener('click', () => { menu.hidden = true; });
-  $('#pdfInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importSlides(f); });
+  $('#pdfInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) (/\.(pptx|ppt)$/i.test(f.name) ? importPowerPoint(f) : importSlides(f)); });
   $('#figInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) insertFigure(f); });
   $('#htmlInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) insertHtml(f); });
 }
@@ -1528,7 +1546,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-15.1045');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-15.1149');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
