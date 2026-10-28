@@ -478,6 +478,9 @@ body[data-board="black"] .ai-switch:not(.off) { background: rgba(46,125,50,.25);
 .ai-modes .seg + .seg { border-left: 1px solid var(--line); }
 .ai-modes .seg.on { background: #1f5fd1; color: #fff; }
 .ai-modes .seg:disabled { opacity: .4; cursor: default; }
+/* Show boxes, next to the AI switch */
+.boxes-switch { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; white-space: nowrap; flex-shrink: 0; cursor: pointer; }
+.boxes-switch input { margin: 0; }
 #onceBtn:active:not(:disabled) { background: #1f5fd1; color: #fff; }
 #penPop .pp-stored { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 #penPop .pp-ps { position: relative; height: 26px; padding: 0 2px 0 12px; border: 1px solid var(--line); border-radius: 6px; line-height: 0; }
@@ -549,6 +552,9 @@ body[data-board="black"] .ai-switch:not(.off) { background: rgba(46,125,50,.25);
 /* student mode: the lecturer's tools are hidden; a chip shows the course */
 body:not(.student-mode) .student-only { display: none !important; }
 body.student-mode .lecturer-only, body.student-mode #sendBtn, body.student-mode #sendMenu, body.student-mode #qBadge { display: none !important; }
+/* a board inside an Interactive Presenter deck (embed.js): no sending, assignments or student questions */
+html.embedded #sendBtn, html.embedded #sendMenu, html.embedded #asgBtn, html.embedded #qBadge,
+html.embedded section:has(#stuCourse) { display: none !important; }
 #studentChip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 16px; background: #e8f0fe; color: #1f3f8f; font-size: 13px; white-space: nowrap; }
 body[data-board="black"] #studentChip { background: #22314d; color: #cfe0ff; }
 #studentChip button { padding: 1px 8px; font-size: 12px; }
@@ -845,3 +851,10 @@ body[data-board="black"] #shortcutBar button[data-g="4"] { background: #3b3252; 
 #shortcutBar button[data-g]:hover { background: #1f5fd1; border-color: #1f5fd1; color: #fff; }
 /* the bar is scaled to fit (fitShortcutBar in app.js), never scrolled */
 #shortcutBar { max-height: none; overflow: visible; transform-origin: top right; }
+
+/* full screen as a slide show (body.fs-fit): the whole page centred on black; the floating bar fades until the pointer is on it */
+body.fs.fs-fit #boardWrap { background: #000; padding: 0; display: flex; }
+body.fs.fs-fit #sheet { margin: auto; box-shadow: none; }
+body.fs.fs-fit #fsBar { opacity: .2; transition: opacity .25s; }
+body.fs.fs-fit #fsBar:hover, body.fs.fs-fit #fsBar:focus-within { opacity: 1; }
+body.fs.fs-fit #fsTab { opacity: .35; }

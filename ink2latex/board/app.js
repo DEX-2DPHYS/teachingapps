@@ -1,17 +1,18 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-15.1149';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-15.1149';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-15.1149';
-import { initSend } from './send.js?v=2026-10-15.1149';
-import { initStudent } from './student.js?v=2026-10-15.1149';
-import { initAssign } from './assign.js?v=2026-10-15.1149';
-import { initVoice } from './voice.js?v=2026-10-15.1149';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-15.1149';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-15.1149';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-15.1149';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-15.1149';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-28.1424';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-28.1424';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-28.1424';
+import { initSend } from './send.js?v=2026-10-28.1424';
+import { initStudent } from './student.js?v=2026-10-28.1424';
+import { initAssign } from './assign.js?v=2026-10-28.1424';
+import { initVoice } from './voice.js?v=2026-10-28.1424';
+import { EMBED, initEmbed } from './embed.js?v=2026-10-28.1424';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-28.1424';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-28.1424';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-28.1424';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-28.1424';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -71,7 +72,8 @@ try {
 if (TOKEN) history.replaceState(null, '', location.pathname);
 
 const settings = Object.assign(
-  { auto: true, liveModel: 'haiku', finalModel: 'sonnet', board: 'white', snap: true, panel: true, size: 3, orientation: 'portrait',
+  // a clean whiteboard to start: no region boxes, no transcription panel (and the AI off, below)
+  { auto: true, liveModel: 'haiku', finalModel: 'sonnet', board: 'white', snap: true, panel: false, boxes: 'none', size: 3, orientation: 'portrait',
     view: 'ink', autoInterp: true, autoAccept: false, autoEval: true, autoMerge: true,
     // robust reading: region shown in its page at true scale; whole lines grouped; two live readings
     // (a third, final-model reading when they differ); an independent page reading on Interpret page.
@@ -79,7 +81,13 @@ const settings = Object.assign(
     readContext: true, lineGroup: true, twoReadings: true, pageCheck: false, cardFilter: 'all' },
   store.get('ink2latex.settings', {}),
 );
-const saveSettings = () => store.set('ink2latex.settings', settings);
+// The AI starts off, like a whiteboard, until it is switched on (that choice is remembered). Students
+// keep it on: their board is there to read their writing.
+if (settings.aiOff === undefined) settings.aiOff = !(settings.studentLecture || new URLSearchParams(location.search).has('join'));
+// A board inside an Interactive Presenter deck (embed.js) leaves this browser's own settings alone:
+// the lecture, sending and assignment state belong to the normal board.
+const saveSettings = () => { if (!EMBED) store.set('ink2latex.settings', settings); };
+if (EMBED) document.documentElement.classList.add('embedded');
 let previewHeld = false; // Preview held down (setPreview); read by renderTypeset
 
 // ----------------------------------------------------------------------------------- state
@@ -88,6 +96,7 @@ const state = { pages: [newPage()], cur: 0, photos: [], cost: 0, calls: 0, costB
 let send = null; // send mode (send.js), set up at the end
 let student = null; // student mode (student.js): set when the board was opened with ?join=CODE
 let assign = null; // assignments (assign.js)
+let embed = null; // inside an Interactive Presenter deck (embed.js), set up at the end
 let blockSeq = 0, photoSeq = 0;
 const curPage = () => state.pages[state.cur];
 
@@ -830,7 +839,12 @@ applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the ke
     { icon: '↷', tip: 'Redo (Ctrl+Y)', run: () => board.redo() },
     null,
     { icon: '＋', tip: 'Zoom in (Ctrl + wheel)', run: () => board.setZoom(board.zoom * 1.2) },
-    { icon: '⤢', tip: 'Fit the page to the width', run: () => board.setZoom(1) },
+    { icon: '⤢', tip: () => (!document.body.classList.contains('fs') ? 'Fit the page to the width'
+        : board.fitMode === 'page' ? 'Whole page on the screen (now). Click: fit the width instead' : 'Fit the width (now). Click: the whole page on the screen, black around it'),
+      run: () => {
+        if (!document.body.classList.contains('fs')) { board.setZoom(1); return; }
+        settings.fsFit = board.fitMode === 'page' && board.zoom === 1 ? 'width' : 'page'; saveSettings(); applyFsFit();
+      }, on: () => document.body.classList.contains('fs') && board.fitMode === 'page' },
     { icon: '−', tip: 'Zoom out (Ctrl + wheel)', run: () => board.setZoom(board.zoom / 1.2) },
     { icon: '🎤', tip: 'Voice input (V): speak to write text or to correct a region', run: () => voice.toggle() },
     { icon: '🔍', tip: 'Zoom to an area (Z): drag a frame, write precisely, Z or Esc zooms back', run: () => roiToggle() },
@@ -842,8 +856,16 @@ applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the ke
     { icon: '✦', tip: 'AI on / off (off: nothing is sent, nothing is spent)', run: () => setAiOn(!!settings.aiOff), on: () => !settings.aiOff },
     { icon: '▤', tip: 'Transcription panel (in full screen: a floating box; 📌 docks it at the right)', run: () => togglePanelAnywhere(), on: () => (document.body.classList.contains('fs') ? fsPanelMode() !== 'off' : !!settings.panel) },
   ],
-  onChange: on => { if (on) settings.fsPanel = 'off'; applyFsPanel(); },
+  onChange: on => { if (on) settings.fsPanel = 'off'; applyFsPanel(); applyFsFit(); },
 });
+// full screen as a slide show: the whole page on the screen, centred, black around it (settings.fsFit 'page',
+// the default), or the page filling the width ('width', for writing far down a tall page)
+function applyFsFit() {
+  const page = document.body.classList.contains('fs') && settings.fsFit !== 'width';
+  document.body.classList.toggle('fs-fit', page);
+  board.setFitMode(page ? 'page' : 'width');
+  try { fullscreen.sync(); } catch { /* not set up yet */ }
+}
 // ---- the panel in full screen: off, a floating box you can drag by its head, or docked at the right
 // it is off when full screen starts; ▤ (or View → Panel) shows it as last used there: floating or docked
 const fsPanelMode = () => settings.fsPanel || 'off';
@@ -1546,7 +1568,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-15.1149');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-28.1424');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -3269,6 +3291,7 @@ function saveSoon() {
 function saveNow() {
   if (board.active || performance.now() - (board.lastUp || 0) < 1200) { saveTimer = setTimeout(saveNow, 800); return; }
   const data = serialize(false);
+  if (EMBED) { embed?.changed(data); return; } // the deck keeps it, not this browser
   idb.set('session', data)
     .then(() => { try { localStorage.removeItem('ink2latex.session'); } catch { /* ignore */ } })
     .catch(() => store.set('ink2latex.session', data));
@@ -3686,6 +3709,7 @@ function applyBoxes() {
   document.body.classList.toggle('frames-none', mode === 'none');
   $('#boxesBtn').classList.toggle('active', mode === 'always');
   $('#boxesBtn').textContent = BOX_MODES[mode];
+  $('#showBoxes').checked = mode !== 'none';
 }
 const toggleBoxes = () => {
   const order = ['always', 'hover', 'none'];
@@ -3695,6 +3719,8 @@ const toggleBoxes = () => {
   toast({ always: 'Boxes: all', hover: 'Boxes: only the one under the pen', none: 'Boxes: off (clean page)' }[settings.boxes]);
 };
 $('#boxesBtn').addEventListener('click', toggleBoxes);
+// Show boxes in the menu line: all or none (the View menu's button and B also have "only the current one")
+$('#showBoxes').addEventListener('change', e => { settings.boxes = e.target.checked ? 'always' : 'none'; saveSettings(); applyBoxes(); });
 applyBoxes();
 
 // View menu: ink / typeset / both, and whether the students' placed comments and questions show on the board
@@ -4132,8 +4158,8 @@ document.addEventListener('keydown', e => {
   else if (!e.ctrlKey && !e.metaKey && k === 't') setTool('text');
   else if (!e.ctrlKey && !e.metaKey && k === 'f') setTool(board.tool === 'fill' ? 'pen' : 'fill'); // F: paint bucket
   else if (k === 'escape' && $('#pagesView')) closePages();
-  else if (!e.ctrlKey && !e.metaKey && !e.altKey && (k === 'arrowright' || k === 'pagedown')) { e.preventDefault(); if (state.cur < state.pages.length - 1) gotoPage(state.cur + 1); }
-  else if (!e.ctrlKey && !e.metaKey && !e.altKey && (k === 'arrowleft' || k === 'pageup')) { e.preventDefault(); if (state.cur > 0) gotoPage(state.cur - 1); }
+  else if (!e.ctrlKey && !e.metaKey && !e.altKey && (k === 'arrowright' || k === 'pagedown')) { e.preventDefault(); if (state.cur < state.pages.length - 1) gotoPage(state.cur + 1); else embed?.slide(1); }
+  else if (!e.ctrlKey && !e.metaKey && !e.altKey && (k === 'arrowleft' || k === 'pageup')) { e.preventDefault(); if (state.cur > 0) gotoPage(state.cur - 1); else embed?.slide(-1); }
   else if ((k === 'delete' || k === 'backspace') && board.sel) { e.preventDefault(); board.deleteSelection(); }
   else if (k === 'escape') board.clearSelection();
   else if (k === 'enter' && board.hover) {
@@ -4320,7 +4346,13 @@ renderAll();
 renderCost();
 // the saved session: IndexedDB, or (sessions saved before) localStorage. sessionReady: sending may
 // only start once this has run (it would otherwise send an empty board)
+embed = EMBED ? initEmbed({ serialize: () => serialize(false), cur: () => state.cur, PAGE, THEMES, theme: () => settings.board, paintStroke, plainText }) : null;
 const sessionReady = (async () => {
+  if (EMBED) { // the deck's board, or a new 16:9 board for a new DTUwrite page
+    const b = await embed.ready;
+    try { restore(b || { app: 'ink2latex', version: 2, coords: 'page', orientation: 'wide', pages: [] }); } catch { /* start fresh */ }
+    return;
+  }
   let saved = null;
   try { saved = await idb.get('session'); } catch { /* not available */ }
   if (!saved) saved = store.get('ink2latex.session', null);
@@ -4328,7 +4360,8 @@ const sessionReady = (async () => {
 })();
 
 // for automated testing
-send = initSend({ state, settings, saveSettings, pagePayload, orientation: () => settings.orientation, toast, board,
+// (not inside a deck: that board must never be sent to students or resume an earlier sending)
+send = EMBED ? null : initSend({ state, settings, saveSettings, pagePayload, orientation: () => settings.orientation, toast, board,
   gotoPage: i => { if (i !== state.cur && i < state.pages.length) gotoPage(i); },
   boardData: () => serialize(false), switchBoard, fromSentPages, uploadPending: uploadPendingImages, sessionReady,
   sentIndex, realIndex, onLogin: () => { if (AI_CLOUD) checkEngines(); } });
@@ -4340,7 +4373,7 @@ if (AI_CLOUD) checkEngines(); // now that the login can be read
 student = initStudent({ settings, saveSettings, boardData: () => serialize(false), toast });
 assign = initAssign({ settings, saveSettings, state, boardData: () => serialize(false), switchBoard, flattenPage, toast, send, student,
   uploadPending: uploadPendingImages, saveNow });
-sessionReady.then(() => { if (!student.active()) assign.sync(); }); // a hand-in under review: its bar
+sessionReady.then(() => { if (!EMBED && !student.active()) assign.sync(); }); // a hand-in under review: its bar
 function studentRulesText(r) {
   const names = { ink: 'transcription', calc: '= ?', sym: '= ?S', solve: '= ?AI', latex: '∑ LaTeX', coach: 'coach', voice: 'voice input' };
   const on = Object.entries(r.features || {}).filter(([, v]) => v).map(([k]) => names[k]).filter(Boolean);
@@ -4378,6 +4411,7 @@ $('#ownKey').addEventListener('change', e => {
   toast(v ? 'Key kept in this browser only' : 'Key removed');
 });
 (async () => {
+  if (EMBED) return; // no student mode inside a deck (its settings section is hidden by style.css)
   const code = new URLSearchParams(location.search).get('join');
   if (code && code.toUpperCase() !== settings.studentLecture?.code) {
     try { await student.join(code); } catch (err) { toast('Could not join: ' + (err.message || err)); return; }

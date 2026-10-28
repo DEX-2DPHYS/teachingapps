@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize, liveShape } from './shapes.js?v=2026-10-15.1149';
+import { recognize, liveShape } from './shapes.js?v=2026-10-28.1424';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -280,6 +280,7 @@ export class Board {
     [this.pageW, this.pageH] = PAGE.portrait;
     this.s = 1;
     this.zoom = 1;       // 1 = page fits the width of the window; < 1 shows the page smaller (more room)
+    this.fitMode = 'width'; // 'page': zoom 1 = the whole page fits the window (full screen as a slide show)
     this.onZoom = null;
     this.trail = [];     // recent hover points [x, y, time] for the laser pointer
     this.lasers = [];    // laser traces [[x, y, time], ...], fading over LASER_FADE_MS
@@ -338,8 +339,14 @@ export class Board {
   }
 
   resize() {
-    const avail = Math.max(200, this.wrap.clientWidth - 24);
-    this.s = (avail / this.pageW) * this.zoom;
+    let fit = Math.max(200, this.wrap.clientWidth - 24) / this.pageW;
+    if (this.fitMode === 'page') {
+      const cs = getComputedStyle(this.wrap);
+      const w = this.wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const h = this.wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      if (w > 50 && h > 50) fit = Math.min(w / this.pageW, h / this.pageH);
+    }
+    this.s = fit * this.zoom;
     const w = this.pageW * this.s, h = this.pageH * this.s;
     const dpr = window.devicePixelRatio || 1;
     this.sheet.style.width = w + 'px';
@@ -353,6 +360,14 @@ export class Board {
     this.dpr = dpr;
     this.request();
     this.onResize?.();
+  }
+
+  // 'width' (the page fills the width) or 'page' (the whole page on the screen); back to zoom 1
+  setFitMode(m) {
+    this.fitMode = m === 'page' ? 'page' : 'width';
+    this.zoom = 1;
+    this.resize();
+    this.onZoom?.(this.zoom);
   }
 
   setZoom(z) {
