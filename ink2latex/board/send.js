@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-28.1424';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-29.1201';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -291,9 +291,15 @@ export function initSend(app) {
       });
       for (const r of rows) {
         let { error } = await c.from('lecture_pages').upsert(r.row, { onConflict: 'lecture_id,page_no' });
+        if (error && /'board'/.test(error.message)) {
+          // no message board column yet (supabase-board.sql not run): send the page without it
+          const { board, ...rest } = r.row;
+          ({ error } = await c.from('lecture_pages').upsert(rest, { onConflict: 'lecture_id,page_no' }));
+          if (!error && board && !S.warnedBoard) { S.warnedBoard = true; app.toast('Message board pages need supabase-board.sql to be run once (Supabase SQL editor)'); }
+        }
         if (error && /texts|images|panes/.test(error.message)) {
           // the database has no text-box / image column yet (supabase-setup.sql not re-run): send without
-          const { texts, images, panes, ...rest } = r.row;
+          const { texts, images, panes, board, ...rest } = r.row;
           ({ error } = await c.from('lecture_pages').upsert(rest, { onConflict: 'lecture_id,page_no' }));
           if (!error && texts?.length && !S.warnedTexts) { S.warnedTexts = true; app.toast('Text boxes are not sent yet: run supabase-setup.sql once more'); }
         }
@@ -394,17 +400,23 @@ export function initSend(app) {
   let qTimer = 0, qChannel = null, questions = [], seen = null, expanded = null;
   const qBtn = document.createElement('button');
   qBtn.id = 'qBadge';
-  qBtn.title = 'Questions and comments from students';
+  qBtn.title = 'Posts, comments and questions from students';
   qBtn.hidden = true;
   document.body.appendChild(qBtn);
-  const kindOf = q => (q.kind === 'comment' ? 'comment' : 'question');
+  // posts (2026-10-29): public, every student sees them; open notes on the board unless Settings →
+  // "Show posts open" is off; a double-click on a post closes / opens it (q.shown, kept in the database,
+  // the students follow it); a message board page shows them open whatever the setting
+  const kindOf = q => (q.kind === 'comment' || q.kind === 'post' ? q.kind : 'question');
+  const KIND_LABEL = { post: '📌 post', comment: '💬 comment', question: '❓ question' };
   const isOpen = q => q.status === 'open';
+  const postOpen = (q, pg) => q.shown ?? (!!pg?.board || app.settings.autoShowPosts !== false);
 
   async function loadQuestions() {
     if (!S.user || !S.lecture) return;
     const c = await client();
     const q = cols => c.from('questions').select(cols).eq('lecture_id', S.lecture.id).order('created_at'); // hidden ones too (review)
-    let { data, error } = await q('id, page_no, text, kind, status, x, y, answer, created_at');
+    let { data, error } = await q('id, page_no, text, kind, status, x, y, answer, shown, created_at');
+    if (error) ({ data, error } = await q('id, page_no, text, kind, status, x, y, answer, created_at')); // supabase-board.sql not run yet: no shown
     if (error) ({ data, error } = await q('id, page_no, text, status, created_at')); // setup not re-run yet: no kind, x, y, answer
     if (error) { console.warn('questions:', error.message); return; } // e.g. the questions table has not been set up yet
     const fresh = seen ? data.filter(x => !seen.has(x.id)) : []; // nothing counts as new on the first load
@@ -416,7 +428,10 @@ export function initSend(app) {
     if (fresh.length) {
       qBtn.classList.remove('bump'); void qBtn.offsetWidth; qBtn.classList.add('bump');
       const x = fresh[fresh.length - 1];
-      if (x.page_no !== app.state.cur || x.x == null || app.settings.showStudent === false) {
+      const pg = app.state.pages[app.state.cur];
+      const inView = x.page_no === app.sentIndex(app.state.cur) && !pg?.hidden && app.settings.showStudent !== false
+        && (kindOf(x) === 'post' ? postOpen(x, pg) || x.x != null : x.x != null);
+      if (!inView) {
         app.toast?.(`New ${kindOf(x)} from a student (page ${x.page_no + 1}): ${x.text.slice(0, 80)}`);
       }
     }
@@ -449,7 +464,7 @@ export function initSend(app) {
       w.querySelector('.q-count').textContent = `${questions.length} in this lecture${questions.length - list.length ? `, ${questions.length - list.length} hidden` : ''}`;
       w.querySelector('.q-list').innerHTML = list.length ? list.map(q => `
         <div class="q-item k-${kindOf(q)} st-${q.status}">
-          <div class="q-meta">${kindOf(q) === 'comment' ? '💬 comment' : '❓ question'} · page ${q.page_no + 1} · ${t(q.created_at)}${q.status === 'answered' ? ' · done' : q.status === 'hidden' ? ' · hidden' : ''}</div>
+          <div class="q-meta">${KIND_LABEL[kindOf(q)]} · page ${q.page_no + 1} · ${t(q.created_at)}${q.status === 'answered' ? ' · done' : q.status === 'hidden' ? ' · hidden' : ''}</div>
           <div class="q-text">${esc(q.text)}</div>
           ${replyBox(q)}
           <div class="q-act">${actions(q, true)}</div>
@@ -457,8 +472,9 @@ export function initSend(app) {
     });
   }
   const actions = (q, withShow) => (withShow && q.x != null ? `<button data-qa="show" data-id="${q.id}" title="Go to the page and show where the student placed it">📍 Show</button>` : '')
-    + (isOpen(q) ? `<button data-qa="answered" data-id="${q.id}">${kindOf(q) === 'comment' ? '✓ Seen' : '✓ Answered'}</button>` : '')
+    + (isOpen(q) ? `<button data-qa="answered" data-id="${q.id}">${kindOf(q) === 'question' ? '✓ Answered' : '✓ Seen'}</button>` : '')
     + (q.status === 'hidden' ? `<button data-qa="${q.answer ? 'answered' : 'open'}" data-id="${q.id}">Show again</button>`
+      : kindOf(q) === 'post' ? `<button data-qa="hidden" data-id="${q.id}" title="Take this post away, for everyone (it is kept in the list: 'show hidden'). To only close it on the board: double-click it.">Remove</button>`
       : `<button data-qa="hidden" data-id="${q.id}" title="Take it off the board and out of the list (it is kept: 'show hidden')">Hide</button>`);
 
   // a written reply, e.g. for a question asked outside the lecture; the student sees it under their question
@@ -487,9 +503,24 @@ export function initSend(app) {
       sheet.appendChild(dotsLayer);
       new ResizeObserver(() => renderDots()).observe(sheet); // zoom, window size, page format
       dotsLayer.addEventListener('pointerdown', e => e.stopPropagation());
+      let lastTap = null;
       dotsLayer.addEventListener('click', e => {
         const a = e.target.closest('[data-qa]');
         if (a) { act(a.dataset.qa, a.dataset.id); return; }
+        // double-click / double tap on a post (open note, closed circle or chip): close / open it, for
+        // everyone. Own detection: mouse, pen and finger alike (touch does not always send dblclick)
+        const p = !e.target.closest('.s-dot-text') && e.target.closest('[data-id]');
+        const q = p && questions.find(x => x.id === p.dataset.id);
+        if (q && kindOf(q) === 'post') {
+          const now = performance.now();
+          if (lastTap?.id === q.id && now - lastTap.t < 450) {
+            lastTap = null;
+            if (expanded === q.id) expanded = null;
+            setShown(q, !postOpen(q, app.state.pages[app.state.cur]));
+            return;
+          }
+          lastTap = { id: q.id, t: now };
+        }
         const d = e.target.closest('.s-dot');
         if (!d || e.target.closest('.s-dot-text')) return; // clicks inside the open bubble keep it open
         expanded = expanded === d.dataset.id ? null : d.dataset.id;
@@ -497,16 +528,38 @@ export function initSend(app) {
       });
     }
     dotsLayer.dataset.page = app.state.cur;
-    const s = app.board.s;
-    const list = app.settings.showStudent === false ? []
-      : questions.filter(q => q.x != null && q.y != null && !app.state.pages[app.state.cur]?.hidden && q.page_no === app.sentIndex(app.state.cur) && q.status !== 'hidden');
+    const s = app.board.s, pg = app.state.pages[app.state.cur];
+    const here = app.settings.showStudent === false || pg?.hidden ? []
+      : questions.filter(q => q.page_no === app.sentIndex(app.state.cur) && q.status !== 'hidden');
+    // open posts are notes (placed ones where the student put them, the ones typed in the side panel in
+    // a column at the left); closed posts, comments and questions are circles; a closed post typed in
+    // the side panel is a small chip in that column
+    const isPost = q => kindOf(q) === 'post';
+    const isNote = q => isPost(q) && postOpen(q, pg);
+    const placed = q => q.x != null && q.y != null;
+    const note = (q, style = '') => `<div class="b-note st-${q.status}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" title="Double-click to close it (for everyone)"${style}>
+        <div class="q-text">${esc(q.text)}</div>${q.answer ? `<div class="q-answer"><b>Your reply:</b> ${esc(q.answer)}</div>` : ''}
+        <div class="q-act">${actions(q, false)}</div></div>`;
+    const chip = q => `<div class="b-chip" data-id="${q.id}" title="${esc(q.text)} (double-click to open it)">📌 ${esc(q.text.slice(0, 24))}${q.text.length > 24 ? '…' : ''}</div>`;
+    const W = app.board.pageW * s, H = app.board.pageH * s;
+    const loose = here.filter(q => isPost(q) && !placed(q));
+    const icon = { post: '📌', comment: '💬', question: '?' };
     keepDrafts(() => {
-      dotsLayer.innerHTML = list.map(q => `
+      dotsLayer.innerHTML = here.filter(placed).map(q => isNote(q)
+        ? note(q, ` style="left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W - 270 ? '-100%' : '0'},${q.y * s > H - 120 ? '-100%' : '0'})"`)
+        : `
         <div class="s-dot k-${kindOf(q)} st-${q.status}${q.x > app.board.pageW / 2 ? ' flip' : ''}${q.id === expanded ? ' expanded' : ''}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" style="left:${q.x * s}px;top:${q.y * s}px">
-          <button class="s-dot-c" title="${esc(q.text)}">${kindOf(q) === 'comment' ? '💬' : '?'}</button>
+          <button class="s-dot-c" title="${esc(q.text)}${isPost(q) ? ' (double-click to open it)' : ''}">${icon[kindOf(q)]}</button>
           <div class="s-dot-text"><div class="q-text">${esc(q.text)}</div>${replyBox(q)}<div class="q-act">${actions(q, false)}</div></div>
-        </div>`).join('');
+        </div>`).join('')
+        + (loose.length ? `<div class="b-col">${loose.map(q => (isNote(q) ? note(q) : chip(q))).join('')}</div>` : '');
     });
+  }
+  async function setShown(q, on) {
+    q.shown = on; // at once on this board; the database tells the students
+    renderDots();
+    const { error } = await (await client()).from('questions').update({ shown: on }).eq('id', q.id);
+    if (error) app.toast?.('Not saved for the students: ' + error.message + (/shown|column/i.test(error.message) ? ' (run supabase-board.sql)' : ''));
   }
 
   async function act(what, id) {
@@ -576,7 +629,7 @@ export function initSend(app) {
     const pages = [...new Set(questions.map(q => q.page_no))].sort((a, b) => a - b);
     const md = [`# ${L.course_code} · ${L.title}`, '', `Comments and questions from students (anonymous), ${questions.length} in all. Downloaded ${t(new Date().toISOString())}.`, '',
       ...pages.flatMap(p => [`## Page ${p + 1}`, '', ...questions.filter(q => q.page_no === p).flatMap(q => [
-        `- **${kindOf(q) === 'comment' ? 'Comment' : 'Question'}** (${t(q.created_at)}${q.status === 'hidden' ? ', hidden' : q.status === 'answered' ? ', done' : ''}): ${q.text.replace(/\n/g, ' ')}`,
+        `- **${{ post: 'Post', comment: 'Comment', question: 'Question' }[kindOf(q)]}** (${t(q.created_at)}${q.status === 'hidden' ? ', hidden' : q.status === 'answered' ? ', done' : ''}): ${q.text.replace(/\n/g, ' ')}`,
         ...(q.answer ? [`  - *Reply:* ${q.answer.replace(/\n/g, ' ')}`] : []),
       ]), ''])].join('\n');
     const a = document.createElement('a');

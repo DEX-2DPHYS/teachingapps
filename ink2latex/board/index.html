@@ -6,7 +6,7 @@
 <title>DTUwrite</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23b3141c'/%3E%3Cstop offset='1' stop-color='%23880000'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='13' fill='url(%23bg)'/%3E%3Cpath d='M8 48 C13 31 20 29 24.5 38.5 S34.5 45 39.5 31' fill='none' stroke='%23fff' stroke-width='5' stroke-linecap='round'/%3E%3Cg transform='translate(40.5 29.5) rotate(-45)'%3E%3Cpath d='M0 0 L9 -5.2 L9 5.2 Z' fill='%23ffd6d6'/%3E%3Cpath d='M0 0 L3.4 -2 L3.4 2 Z' fill='%233b0000'/%3E%3Crect x='8.6' y='-5.2' width='18.4' height='10.4' rx='1.6' fill='%23fff'/%3E%3Crect x='11.2' y='-5.2' width='2.6' height='10.4' fill='%23e9a9a9'/%3E%3Crect x='24.5' y='-5.2' width='3.5' height='10.4' rx='1.7' fill='%23ffd0d0'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css">
-<link rel="stylesheet" href="style.css?v=2026-10-28.1424">
+<link rel="stylesheet" href="style.css?v=2026-10-29.1201">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js"></script>
 </head>
 <body data-board="white">
@@ -40,6 +40,7 @@
     <div id="pagesMenu" class="popup tmenu" hidden>
       <button id="pagesBtn" title="All pages: overview with thumbnails. Go to a page, drag to reorder, hide from students, duplicate, delete, add.">▦ Overview…</button>
       <button id="pageNew" title="A new page after this one">＋ New page</button>
+      <button id="pageBoard" title="Message board (on / off): students' posts on this page are always open (whatever the setting), and the students get a hint to post here. For groups or individuals to report to everyone. Students double-click the page where they want to post.">📌 Message board page</button>
       <button id="fitPage" title="Scale everything on this page down so it fits inside the page margins (undo with Ctrl+Z)">⤢ Fit writing to the page</button>
       <button id="clear" title="Clear this page (undo with Ctrl+Z)">🗑 Clear this page</button>
     </div>
@@ -93,6 +94,7 @@
           </div>
           <label class="row" title="How visible the students' comment (green) and question (red) circles are on the board. The one you point at or open is always fully visible.">Student markers
             <input type="range" id="dotOpacity" min="0.15" max="1" step="0.05"> <span id="dotOpacityVal" class="dim small"></span></label>
+          <label class="row" title="Students' posts (📌, seen by everyone) appear open on the board as they arrive. Off: they arrive as closed circles. Either way a double-click on a post opens or closes it, for everyone. On a message board page posts are always open."><input type="checkbox" id="autoShowPosts"> Show students' posts open on the board</label>
         </section>
         <section>
           <h4>AI</h4>
@@ -255,6 +257,6 @@
 
 <div id="toast"></div>
 <div id="printArea"></div>
-<script type="module" src="app.js?v=2026-10-28.1424"></script>
+<script type="module" src="app.js?v=2026-10-29.1201"></script>
 </body>
 </html>

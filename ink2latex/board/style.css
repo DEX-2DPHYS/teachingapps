@@ -430,6 +430,27 @@ details textarea {
 .q-reply button { font-size: 12px; padding: 2px 10px; }
 .q-answer { font-size: 14px; background: #eef6ee; border-radius: 6px; padding: 4px 6px; width: 100%; white-space: pre-wrap; color: #1b1b1b; }
 #qWin .q-item.k-comment { border-left-color: #2e7d32; }
+/* students' posts (📌, public) as open notes (always fully visible, whatever the marker setting) */
+.b-note {
+  position: absolute; width: max-content; max-width: 260px; min-width: 120px; padding: 7px 10px; border-radius: 8px; pointer-events: auto; cursor: default; user-select: none;
+  background: #fff8d6; color: #1b1b1b; border: 2px solid #e0a000; box-shadow: 0 3px 12px rgba(0,0,0,.22);
+  font: 15px system-ui, sans-serif;
+}
+.b-note:hover { z-index: 2; }
+.b-note .q-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.b-note .q-answer { margin-top: 4px; font-size: 13px; }
+.b-note .q-act { display: flex; gap: 4px; margin-top: 5px; }
+.b-note .q-act button { font-size: 11px; padding: 1px 7px; }
+.b-note:not(:hover) .q-act { display: none; } /* Seen / Hide only when pointed at: the page stays clean */
+.b-note.bump { animation: notebump .8s ease-out 2; }
+@keyframes notebump { 0% { box-shadow: 0 0 0 0 rgba(224,160,0,.7); } 100% { box-shadow: 0 0 0 16px rgba(224,160,0,0); } }
+.b-chip { pointer-events: auto; cursor: default; user-select: none; background: #fff8d6; color: #1b1b1b; border: 1px solid #e0a000; border-radius: 12px; padding: 2px 9px; font: 12px system-ui, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.s-dot.k-post .s-dot-c { background: #e0a000; font-size: 14px; }
+.s-dot.k-post .s-dot-text { border-color: #e0a000; }
+#qWin .q-item.k-post { border-left-color: #e0a000; }
+/* the ones typed in the side panel (no place): a column at the left (the right edge can be off screen) */
+.b-col { position: absolute; left: 8px; top: 34px; bottom: 8px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; overflow-y: auto; pointer-events: none; }
+.b-col .b-note { position: relative; }
 
 #diag {
   position: fixed; left: 10px; bottom: 10px; z-index: 200; pointer-events: none;
@@ -548,6 +569,10 @@ body[data-board="black"] .ai-switch:not(.off) { background: rgba(46,125,50,.25);
 .pv-act button.on { background: #444; color: #fff; }
 .pv-new { display: flex; align-items: center; justify-content: center; border: 2px dashed var(--line); border-radius: 8px; min-height: 120px; font-size: 15px; color: var(--dim); background: transparent; cursor: pointer; }
 #hiddenBadge { position: absolute; left: 8px; top: 8px; z-index: 8; background: #444; color: #fff; font: 12px system-ui, sans-serif; border-radius: 6px; padding: 3px 9px; pointer-events: none; }
+#boardBadge { position: absolute; left: 8px; top: 8px; z-index: 8; background: #b07d00; color: #fff; font: 12px system-ui, sans-serif; border-radius: 6px; padding: 3px 9px; opacity: .8; }
+.pv-board-tag { background: #b07d00; }
+#pageBoard.on { background: #b07d00; color: #fff; }
+#pageBoard.on::after { content: ' ✓'; }
 
 /* student mode: the lecturer's tools are hidden; a chip shows the course */
 body:not(.student-mode) .student-only { display: none !important; }

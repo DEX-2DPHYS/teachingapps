@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-28.1424';
-import { TextLayer } from './textboxes.js?v=2026-10-28.1424';
-import { drawImages } from './figures.js?v=2026-10-28.1424';
-import { initFullscreen } from './fullscreen.js?v=2026-10-28.1424';
-import { paneLayer } from './panes.js?v=2026-10-28.1424';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-29.1201';
+import { TextLayer } from './textboxes.js?v=2026-10-29.1201';
+import { drawImages } from './figures.js?v=2026-10-29.1201';
+import { initFullscreen } from './fullscreen.js?v=2026-10-29.1201';
+import { paneLayer } from './panes.js?v=2026-10-29.1201';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -39,11 +39,13 @@ async function loadLibs() {
   });
 }
 
+let me = null; // this student's (anonymous) user id: tells own comments from the others' on a message board page
 async function signedIn() {
   const { data } = await sb.auth.getSession();
-  if (data.session) return;
-  const { error } = await sb.auth.signInAnonymously();
+  if (data.session) { me = data.session.user.id; return; }
+  const { data: d, error } = await sb.auth.signInAnonymously();
   if (error) throw error;
+  me = d.user?.id || null;
 }
 
 // ----------------------------------------------------------------------------------- join / leave
@@ -146,7 +148,12 @@ function pageChanged(no) {
   clearTimeout(pending.get(no));
   pending.set(no, setTimeout(async () => {
     await refreshList();
-    if (no === cur) { row = await fetchPage(no).catch(() => row); render(); } else cache.delete(no);
+    if (no === cur) {
+      const was = !!row?.board;
+      row = await fetchPage(no).catch(() => row);
+      render();
+      if (!!row?.board !== was) loadTyped(cur).catch(() => {}); // message board on / off: the others' comments come / go
+    } else cache.delete(no);
   }, 300));
 }
 
@@ -160,7 +167,7 @@ async function poll() {
     lecturerPage = data.current_page;
     if ($('#follow').checked) { await showPage(nearestPage(lecturerPage)); return; }
   }
-  if (pages.find(p => p.page_no === cur)?.version !== before) { row = await fetchPage(cur).catch(() => row); render(); }
+  if (pages.find(p => p.page_no === cur)?.version !== before) { row = await fetchPage(cur).catch(() => row); render(); loadTyped(cur).catch(() => {}); }
 }
 
 // ----------------------------------------------------------------------------------- navigation
@@ -651,47 +658,70 @@ function dbg(kind, e) {
   }
   box.textContent = `down ${dbgCount.down}  up ${dbgCount.up}  cancel ${dbgCount.cancel}  touch ${dbgCount.touch}\nlast: ${dbgLast}\nstrokes on page: ${notes.get(cur)?.strokes.length ?? '-'}`;
 }
-// Typed notes (private), comments and questions (both sent anonymously to the lecturer), per page.
+// Typed notes (private), comments and questions (both sent anonymously to the lecturer), and posts
+// (anonymous, for everyone: the lecturer's board and every student), per page.
 // Double-click on the page writes one right there: it then has x, y in page units and shows as a pin
 // (the lecturer sees comments as green and questions as red circles at the same place).
-const typed = new Map(); // page_no -> {notes:[{text, x, y}], questions:[{text, kind, status, x, y}]}
+// Posts of everyone show as open notes, live; one the lecturer closed (shown = false) is a pin.
+// A message board page (the lecturer's choice, row.board) asks the students to post there.
+const typed = new Map(); // page_no -> {notes:[{text, x, y}], questions:[{text, kind, status, x, y}] (own), posts:[of everyone]}
 async function loadTyped(no) {
   if (!lecture) return;
   const qsel = cols => sb.from('questions').select(cols).eq('lecture_id', lecture.id).eq('page_no', no).order('created_at');
   const [n, q0] = await Promise.all([
     sb.from('student_notes').select('text, x, y, updated_at').eq('lecture_id', lecture.id).eq('page_no', no).eq('kind', 'text').order('updated_at'),
-    qsel('text, kind, status, x, y, answer, created_at'),
+    qsel('text, kind, status, x, y, answer, shown, created_at, student'),
   ]);
-  // before the setup is re-run, questions have no kind, x, y, answer columns yet
-  const q = q0.error ? await qsel('text, status, created_at') : q0;
-  typed.set(no, { notes: n.data || [], questions: q.error ? [] : q.data || [] });
+  // before the setup is re-run, questions have no kind, x, y, answer (shown: supabase-board.sql) columns yet
+  let q = q0;
+  if (q.error) q = await qsel('text, kind, status, x, y, answer, created_at, student');
+  if (q.error) q = await qsel('text, status, created_at');
+  const all = q.error ? [] : q.data || [];
+  const mine = x => !x.student || x.student === me;
+  typed.set(no, { notes: n.data || [], questions: all.filter(mine), posts: all.filter(x => kindOf(x) === 'post' && x.status !== 'hidden') });
   renderMine();
   renderPins();
 }
 
 const KIND = {
   note: { icon: '📝', done: 'note saved', fail: 'note not saved: ' },
+  post: { icon: '📌', done: 'posted for everyone (anonymous)', fail: 'not posted: ' },
   comment: { icon: '💬', done: 'comment sent (anonymous)', fail: 'comment not sent: ' },
   question: { icon: '?', done: 'question sent (anonymous)', fail: 'question not sent: ' },
 };
-const kindOf = q => (q.kind === 'comment' ? 'comment' : 'question');
+const kindOf = q => (q.kind === 'comment' || q.kind === 'post' ? q.kind : 'question');
 
 // pins on the page for placed notes, comments and questions; tap one to read it
 function renderPins() {
   const box = $('#pins');
   if (!box) return;
-  const t = typed.get(cur) || { notes: [], questions: [] };
+  const t = typed.get(cur) || { notes: [], questions: [], posts: [] };
   const placed = x => x.x != null && x.y != null;
   const status = { open: 'sent to the lecturer', answered: 'answered', hidden: 'seen by the lecturer' };
+  const yours = q => q.student === me;
+  // everyone's posts: open notes (the ones typed in the side panel in a column at the left), or a pin
+  // when the lecturer closed it
+  const posts = t.posts || [];
+  const open = posts.filter(q => q.shown !== false);
+  const closed = posts.filter(q => q.shown === false && placed(q)).map(q => ({ ...q, k: 'post', tag: (yours(q) ? 'your post' : 'post') + ' · closed by the lecturer' }));
   const list = [
     ...($('#showNotes').checked ? t.notes.filter(placed).map(n => ({ ...n, k: 'note', tag: 'private note' })) : []),
-    ...($('#showQuestions').checked ? t.questions.filter(placed).map(q => ({ ...q, k: kindOf(q), tag: status[q.status] || q.status })) : []),
+    ...($('#showQuestions').checked ? t.questions.filter(q => placed(q) && kindOf(q) !== 'post').map(q => ({ ...q, k: kindOf(q), tag: status[q.status] || q.status })) : []),
+    ...closed,
   ];
+  const note = (q, style = '') => `<div class="b-note${yours(q) ? ' own' : ''}"${style}>${renderMixed(q.text)}${yours(q) ? '<span class="st">yours</span>' : ''}${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`;
+  const loose = open.filter(q => !placed(q));
+  const { s, W, H } = geo;
   box.hidden = view === 'doc';
-  box.innerHTML = list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}" style="left:${p.x * geo.s}px;top:${p.y * geo.s}px">
+  box.innerHTML = open.filter(placed).map(q => note(q, ` style="left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W * s - 250 ? '-100%' : '0'},${q.y * s > H * s - 100 ? '-100%' : '0'})"`)).join('')
+    + (loose.length ? `<div class="b-col">${loose.map(q => note(q)).join('')}</div>` : '')
+    + list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}" style="left:${p.x * geo.s}px;top:${p.y * geo.s}px">
       <button class="pin-dot" title="${esc(p.text)}">${KIND[p.k].icon}</button>
       <div class="pin-text">${renderMixed(p.text)}<span class="st">${esc(p.tag)}</span>${p.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(p.answer)}</div>` : ''}</div></div>`).join('');
+  const hint = $('#boardHint');
+  if (hint) hint.hidden = !isBoardPage() || view === 'doc';
 }
+const isBoardPage = () => !!row?.board && row.page_no === cur;
 $('#pins').addEventListener('click', e => {
   const pin = e.target.closest('.pin');
   if (!pin) return;
@@ -709,18 +739,19 @@ async function addMine(text, kind, x = null, y = null) {
     if (error) throw error;
   } else {
     let { error } = await sb.from('questions').insert({ lecture_id: lecture.id, page_no: cur, text, kind, ...at });
-    if (error && /column|schema cache/i.test(error.message)) { // setup not re-run yet: send the text only
+    if (error && kind !== 'post' && /column|schema cache/i.test(error.message)) { // setup not re-run yet: send the text only
       ({ error } = await sb.from('questions').insert({ lecture_id: lecture.id, page_no: cur, text: kind === 'comment' ? 'Comment: ' + text : text }));
     }
+    if (error && kind === 'post' && /kind_check|check constraint/i.test(error.message)) throw new Error('posts are not switched on in this course yet (the lecturer has to update the database)');
     if (error) throw error;
   }
   setNoteStatus(KIND[kind].done);
   await loadTyped(cur);
 }
-// in the side field: "Q: ..." = question, "C: ..." = comment, anything else = private note
+// in the side field: "P: ..." = post, "Q: ..." = question, "C: ..." = comment, anything else = private note
 function parseTyped(raw) {
-  const m = raw.match(/^([qc])\s*[:;]\s*([\s\S]+)/i);
-  return m ? { kind: m[1].toLowerCase() === 'q' ? 'question' : 'comment', text: m[2].trim() } : { kind: 'note', text: raw };
+  const m = raw.match(/^([qcp])\s*[:;]\s*([\s\S]+)/i);
+  return m ? { kind: { q: 'question', c: 'comment', p: 'post' }[m[1].toLowerCase()], text: m[2].trim() } : { kind: 'note', text: raw };
 }
 
 // double-click (double-tap) on the page: a text field opens right where you clicked
@@ -742,8 +773,8 @@ function closePlace() { placeAt = null; const f = $('#placeForm'); if (f) f.hidd
 $('#placeCancel').addEventListener('click', closePlace);
 $('#placeText').addEventListener('keydown', e => {
   if (e.key === 'Escape') closePlace();
-  // Enter = note (private); Shift+Enter = new line
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#placeForm').requestSubmit($('#placeForm [data-kind=note]')); }
+  // Enter = note (private), on a message board page a post; Shift+Enter = new line
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#placeForm').requestSubmit($(`#placeForm [data-kind=${isBoardPage() ? 'post' : 'note'}]`)); }
 });
 $('#placeForm').addEventListener('submit', async e => {
   e.preventDefault();
@@ -783,7 +814,7 @@ $('#sheet').addEventListener('pointermove', e => {
 // A tap is a short press that hardly moves: the end of a pen stroke is not a tap.
 let lastTap = null;
 $('#sheet').addEventListener('pointerup', e => {
-  if (noteMode || textMode || e.target.closest('.pin')) return;
+  if (noteMode || textMode || e.target.closest('.pin, .b-note')) return;
   const now = performance.now();
   if (!press || press.moved > 12 || now - press.t > 350) { lastTap = null; return; }
   if (lastTap && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
@@ -799,7 +830,7 @@ function renderMine() {
   const status = { open: 'sent', answered: 'answered', hidden: 'seen' };
   const where = x => (x.x != null ? ' · 📍 on the page' : '');
   $('#myList').innerHTML = [
-    ...t.questions.map(q => `<div class="my ${kindOf(q)}">${kindOf(q) === 'comment' ? '💬' : '❓'} ${renderMixed(q.text)}<span class="st">${status[q.status] || q.status}${where(q)}</span>${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`),
+    ...t.questions.map(q => `<div class="my ${kindOf(q)}">${{ post: '📌', comment: '💬', question: '❓' }[kindOf(q)]} ${renderMixed(q.text)}<span class="st">${kindOf(q) === 'post' ? (q.status === 'hidden' ? 'removed by the lecturer' : 'posted for everyone') : status[q.status] || q.status}${where(q)}</span>${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`),
     ...t.notes.map(x => `<div class="my">📝 ${renderMixed(x.text)}${x.x != null ? '<span class="st">📍 on the page</span>' : ''}</div>`),
   ].join('');
 }
@@ -807,7 +838,7 @@ $('#noteForm').addEventListener('submit', async e => {
   e.preventDefault();
   const raw = $('#noteText').value.trim();
   if (!lecture) return;
-  if (!raw) { $('#noteText').focus(); setNoteStatus('Type a note first (start with C: for a comment or Q: for a question to the lecturer)'); return; }
+  if (!raw) { $('#noteText').focus(); setNoteStatus('Type a note first (start with P: for a post everyone sees, C: for a comment or Q: for a question to the lecturer)'); return; }
   const { kind, text } = parseTyped(raw);
   try {
     await addMine(text, kind);

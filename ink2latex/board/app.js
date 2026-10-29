@@ -1,18 +1,18 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-28.1424';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-28.1424';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-28.1424';
-import { initSend } from './send.js?v=2026-10-28.1424';
-import { initStudent } from './student.js?v=2026-10-28.1424';
-import { initAssign } from './assign.js?v=2026-10-28.1424';
-import { initVoice } from './voice.js?v=2026-10-28.1424';
-import { EMBED, initEmbed } from './embed.js?v=2026-10-28.1424';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-28.1424';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-28.1424';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-28.1424';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-28.1424';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-29.1201';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-29.1201';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-29.1201';
+import { initSend } from './send.js?v=2026-10-29.1201';
+import { initStudent } from './student.js?v=2026-10-29.1201';
+import { initAssign } from './assign.js?v=2026-10-29.1201';
+import { initVoice } from './voice.js?v=2026-10-29.1201';
+import { EMBED, initEmbed } from './embed.js?v=2026-10-29.1201';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-29.1201';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-29.1201';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-29.1201';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-29.1201';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -73,7 +73,7 @@ if (TOKEN) history.replaceState(null, '', location.pathname);
 
 const settings = Object.assign(
   // a clean whiteboard to start: no region boxes, no transcription panel (and the AI off, below)
-  { auto: true, liveModel: 'haiku', finalModel: 'sonnet', board: 'white', snap: true, panel: false, boxes: 'none', size: 3, orientation: 'portrait',
+  { auto: true, liveModel: 'haiku', finalModel: 'sonnet', board: 'white', snap: true, panel: false, boxes: 'none', size: 3, orientation: 'wide',
     view: 'ink', autoInterp: true, autoAccept: false, autoEval: true, autoMerge: true,
     // robust reading: region shown in its page at true scale; whole lines grouped; two live readings
     // (a third, final-model reading when they differ); an independent page reading on Interpret page.
@@ -81,9 +81,11 @@ const settings = Object.assign(
     readContext: true, lineGroup: true, twoReadings: true, pageCheck: false, cardFilter: 'all' },
   store.get('ink2latex.settings', {}),
 );
-// The AI starts off, like a whiteboard, until it is switched on (that choice is remembered). Students
-// keep it on: their board is there to read their writing.
-if (settings.aiOff === undefined) settings.aiOff = !(settings.studentLecture || new URLSearchParams(location.search).has('join'));
+// The lecturer's board always starts with the AI off, like a whiteboard (2026-10-29: no longer
+// remembered between starts); switch it on when needed. Students keep it on: their board is there to
+// read their writing.
+if (!(settings.studentLecture || new URLSearchParams(location.search).has('join'))) settings.aiOff = true;
+else if (settings.aiOff === undefined) settings.aiOff = false;
 // A board inside an Interactive Presenter deck (embed.js) leaves this browser's own settings alone:
 // the lecture, sending and assignment state belong to the normal board.
 const saveSettings = () => { if (!EMBED) store.set('ink2latex.settings', settings); };
@@ -665,6 +667,18 @@ function renderHiddenBadge() {
   let b = $('#hiddenBadge');
   if (!b) { b = document.createElement('div'); b.id = 'hiddenBadge'; b.textContent = 'Hidden from students'; $('#sheet').appendChild(b); }
   b.hidden = !curPage().hidden;
+  // a message board page: the students' posts stay open on it, and the students are asked to post there
+  let m = $('#boardBadge');
+  if (!m) { m = document.createElement('div'); m.id = 'boardBadge'; m.textContent = '📌 Message board'; m.title = "Students' posts on this page are always open (Pages → Message board page)"; $('#sheet').appendChild(m); }
+  m.hidden = !curPage().board || !!curPage().hidden; // same corner as "Hidden from students"
+  $('#pageBoard')?.classList.toggle('on', !!curPage().board);
+}
+function setMessageBoard(p, on) {
+  p.board = on;
+  saveSoon();
+  renderHiddenBadge();
+  send?.renderDots();
+  if (on && !send?.isLive()) toast('Message board page: students see it once you send the lecture (📡 Send)');
 }
 
 function thumbOf(p, width, onLoad) {
@@ -691,7 +705,7 @@ function copyPage(p) {
   const q = JSON.parse(JSON.stringify({ strokes: p.strokes, blocks: p.blocks.map(b => ({ ...b, status: b.status === 'busy' ? 'stale' : b.status })), texts: p.texts || [], images: (p.images || []).filter(i => !i.shot), panes: p.panes || [], interp: p.interp }, (k, v) => (k.startsWith('_') ? undefined : v))); // no drawing caches (_path …): they do not survive a copy
   return { ...newPage(), ...q, blocks: q.blocks.map(b => ({ ...newBlock(), ...b, id: ++blockSeq })),
     texts: q.texts.map(t => ({ ...t, id: 't' + id() })), images: q.images.map(im => ({ ...im, id: id() })),
-    panes: q.panes.map(pn => ({ ...pn, id: newPaneId(), shotKey: '' })), hidden: !!p.hidden };
+    panes: q.panes.map(pn => ({ ...pn, id: newPaneId(), shotKey: '' })), hidden: !!p.hidden, board: !!p.board };
 }
 
 function openPages() {
@@ -699,7 +713,7 @@ function openPages() {
   const v = document.createElement('div');
   v.id = 'pagesView';
   v.innerHTML = `<div class="pv-box"><div class="pv-head"><strong>Pages</strong>
-    <span class="dim">Tap a page to go there · drag to move · 👁 hide from students · ⧉ duplicate · + new page after · ✕ delete</span>
+    <span class="dim">Tap a page to go there · drag to move · 👁 hide from students · 📌 message board · ⧉ duplicate · + new page after · ✕ delete</span>
     <button data-pv="close" title="Close (Esc)">✕</button></div><div class="pv-grid"></div></div>`;
   document.body.appendChild(v);
   v.addEventListener('pointerdown', e => { if (e.target === v) closePages(); });
@@ -718,9 +732,10 @@ function renderPages() {
     t.className = 'pv-tile' + (i === state.cur ? ' cur' : '') + (p.hidden ? ' hid' : '');
     t.dataset.i = i;
     t.appendChild(thumbOf(p, 220, onLoad));
-    t.insertAdjacentHTML('beforeend', `<span class="pv-num">${i + 1}</span>${p.hidden ? '<span class="pv-hidden-tag">hidden from students</span>' : ''}
+    t.insertAdjacentHTML('beforeend', `<span class="pv-num">${i + 1}</span>${p.hidden ? '<span class="pv-hidden-tag">hidden from students</span>' : p.board ? '<span class="pv-hidden-tag pv-board-tag">📌 message board</span>' : ''}
       <div class="pv-act">
         <button data-pv="hide" class="${p.hidden ? 'on' : ''}" title="${p.hidden ? 'Show to students again' : 'Hide from students (not sent)'}">👁</button>
+        <button data-pv="board" class="${p.board ? 'on' : ''}" title="${p.board ? 'Message board off: posts follow the setting again' : 'Message board: the students\' posts on this page are always open, and the students are asked to post here'}">📌</button>
         <button data-pv="dup" title="Duplicate this page">⧉</button>
         <button data-pv="add" title="New empty page after this one">+</button>
         <button data-pv="del" title="Delete this page">✕</button>
@@ -747,6 +762,7 @@ document.addEventListener('click', e => {
   if (a === 'new') { state.pages.push(newPage()); pagesChanged(curObj); return; }
   const p = state.pages[i];
   if (a === 'hide') { p.hidden = !p.hidden; pagesChanged(curObj); return; }
+  if (a === 'board') { setMessageBoard(p, !p.board); renderPages(); return; }
   if (a === 'dup') { state.pages.splice(i + 1, 0, copyPage(p)); pagesChanged(curObj); toast(`Page ${i + 1} duplicated`); return; }
   if (a === 'add') { state.pages.splice(i + 1, 0, newPage()); pagesChanged(curObj); return; }
   if (a === 'del') {
@@ -1568,7 +1584,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-28.1424');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-29.1201');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -1736,15 +1752,21 @@ async function transcribe(b, modelKey) {
 // double click / double tap on a region: answer its "= ?" / "= ?AI" now (reading new ink first if needed)
 function requestAnswer(b) {
   if (settings.aiOff) { toast('The AI is off: switch it on (AI in the menu line) to read and answer'); return; }
+  b = joinAnswerBox(b);
   if (b.status === 'busy' || b.status === 'stale') {
     b.forceEval = true;
     if (b.status === 'stale') transcribe(b, settings.liveModel);
     toast('Reading the ink first…');
     return;
   }
-  const q = questionOf(b);
-  if (!q) { toast('No "= □" or "= ?" in this region'); return; }
-  evaluateBlock(b, q, true);
+  const q = explicitQuestionOf(b);
+  if (!q) {
+    const read = String(sourceOf(b) || '').replace(/\s+/g, ' ').trim();
+    toast(read ? `Read as "${read.length > 60 ? read.slice(0, 57) + '…' : read}": nothing open to work out. End it with "=" (or draw ⊜) and double-click again.`
+      : 'Nothing to work out in this region');
+    return;
+  }
+  evaluateBlock(b, q.mode, true, q.mark);
 }
 
 board.onDoubleTap = p => {
@@ -1793,27 +1815,16 @@ function markExpr(src, mode) {
     .replace(/(\s|\\[,;:! ]|\\text\{\s*A\.?I\.?\s*\}|\bA\.?I\.?|⊜|\\(ominus|odot|circ|bigcirc|circledcirc|oslash|circeq|eqcirc|square|Box)\b|\(\s*=\s*\)|=|\?|\$)+$/g, '');
   return s + (mode === 'ai' ? ' = ?AI' : ' = ?');
 }
-function questionOf(b) {
+// explicit: asked for with a double click, so "= ?" and a drawn box count also when the old way is off
+// (that switch is about answering them automatically: "= ?" may be a question for the students)
+function questionOf(b, explicit = false) {
   const r = b.result;
   if (!r || !['math', 'mixed', 'text'].includes(r.kind)) return null;
   // ⊜ (and "⊜ AI"): the circle is found in the strokes; "AI" after it in the reading
   if (calcMarkOf(b)) return /A\.?I\.?[\s}$]*$/i.test(String(sourceOf(b))) ? 'ai' : 'calc';
   // "= ?" and drawn boxes: questions for the students, unless the old way is switched on
-  if (!settings.oldTriggers) return null;
-  // normalise the many ways a transcription can write the marker: \text{???}, \, spacing, \Box, □ ...
-  const src = String(sourceOf(b))
-    .replace(/\$/g, '')
-    .replace(/\\(text|mathrm|mathit|operatorname|textrm|mathbf|textbf)\s*\{([^{}]*)\}/g, '$2')
-    // only an EMPTY box is an answer box (\boxed{x=5} is a boxed result, not a question)
-    .replace(/\\(boxed|fbox|framebox)\{(\s|~|\\[,;: ]|\\q?quad|\\phantom\{[^{}]*\}|\\hspace\{[^{}]*\})*\}|\\(square|Box)\b|\[\s*\]|□|▢|☐|⬜/g, '□')
-    .replace(/\\q?quad|\\phantom\{[^{}]*\}/g, ' ')
-    // multi-line layouts: "\begin{aligned} N &= … \\ &= ? \end{aligned}" asks the same as "N = … = ?"
-    .replace(/\\(begin|end)\{(aligned|align\*?|gathered|split|array)\}(\{[^{}]*\})?|\\\\|&/g, ' ')
-    .replace(/\\[,;:! ]|\\(right|left)[.)]?/g, ' ')
-    // the marker in braces: "= {?}", "= {□}" (some transcriptions group it)
-    .replace(/\{\s*(\?+|□)\s*\}/g, '$1')
-    .replace(/\s+/g, '')
-    .replace(/[.,;]+$/, '');
+  if (!settings.oldTriggers && !explicit) return null;
+  const src = markerSource(b);
   if (!src.includes('=')) return null;
   // the marker: "?", "???", "□", or both ("□?", "?□": models sometimes write the box and the question mark)
   if (/=(\?+□?|□\?*)A\.?I\.?$/i.test(src)) return 'ai';
@@ -1826,6 +1837,97 @@ function questionOf(b) {
   if (answerBoxOf(b, pageOf(b))) return /A\.?I\.?$/i.test(src) ? 'ai' : /N$/.test(src) ? 'num' : /S$/.test(src) ? 'sym' : 'calc';
   return null;
 }
+// normalise the many ways a transcription can write the marker: \text{???}, \, spacing, \Box, □ ...
+function markerSource(b) {
+  return String(sourceOf(b))
+    .replace(/\$/g, '')
+    .replace(/\\(text|mathrm|mathit|operatorname|textrm|mathbf|textbf)\s*\{([^{}]*)\}/g, '$2')
+    // only an EMPTY box is an answer box (\boxed{x=5} is a boxed result, not a question)
+    .replace(/\\(boxed|fbox|framebox)\{(\s|~|\\[,;: ]|\\q?quad|\\phantom\{[^{}]*\}|\\hspace\{[^{}]*\})*\}|\\(square|Box)\b|\[\s*\]|□|▢|☐|⬜/g, '□')
+    .replace(/\\q?quad|\\phantom\{[^{}]*\}/g, ' ')
+    // multi-line layouts: "\begin{aligned} N &= … \\ &= ? \end{aligned}" asks the same as "N = … = ?"
+    .replace(/\\(begin|end)\{(aligned|align\*?|gathered|split|array)\}(\{[^{}]*\})?|\\\\|&/g, ' ')
+    .replace(/\\[,;:! ]|\\(right|left)[.)]?/g, ' ')
+    // the marker in braces: "= {?}", "= {□}" (some transcriptions group it)
+    .replace(/\{\s*(\?+|□)\s*\}/g, '$1')
+    .replace(/\s+/g, '')
+    .replace(/[.,;]+$/, '');
+}
+
+// What a double click asks: every marker counts (questionOf with explicit), and also an open "=" at the
+// end, in the reading or in the strokes (a reading may leave a bare "=" out), and an expression without
+// any "=", which is simply worked out. { mode, mark } or null; mark: send it as "<expression> = ?"
+// (markExpr), because the reading itself has no "?" or box to show what is asked.
+function explicitQuestionOf(b) {
+  const page = pageOf(b);
+  const src = markerSource(b);
+  const mark = !/[?□]/.test(src);
+  const q = questionOf(b, true);
+  if (q) return { mode: q, mark: mark || !!calcMarkOf(b, page) };
+  if (!['math', 'mixed'].includes(b.result?.kind)) return null;
+  const ai = /A\.?I\.?$/i.test(src);
+  if (/=(A\.?I\.?)?$/i.test(src) || openEqualsOf(b, page)) return { mode: ai ? 'ai' : 'calc', mark: true };
+  if (src && !src.includes('=')) return { mode: 'calc', mark: true };
+  return null;
+}
+
+// An open "=" at the end of the writing, found in the strokes: two short flat strokes, one above the
+// other, with nothing after them on their line (an empty answer box there is fine).
+function openEqualsOf(b, page = pageOf(b)) {
+  const lh = typicalHeight(page.strokes);
+  const boxes = new Set(answerBoxesOf(b, page).map(x => x.stroke));
+  const st = strokesOf(b, page).filter(s => !s.fill && !boxes.has(s));
+  const flat = st.map(s => ({ s, bx: strokeBox(s) })).filter(({ bx }) => {
+    const w = bx.x1 - bx.x0, h = bx.y1 - bx.y0;
+    return w >= 0.25 * lh && w <= 2.5 * lh && h <= 0.45 * w;
+  });
+  for (const a of flat) {
+    for (const c of flat) {
+      if (a === c || a.bx.y0 > c.bx.y0) continue; // a: the upper bar
+      const overlap = Math.min(a.bx.x1, c.bx.x1) - Math.max(a.bx.x0, c.bx.x0);
+      const gap = (c.bx.y0 + c.bx.y1) / 2 - (a.bx.y0 + a.bx.y1) / 2;
+      if (overlap < 0.5 * Math.min(a.bx.x1 - a.bx.x0, c.bx.x1 - c.bx.x0) || gap < 0.12 * lh || gap > 0.9 * lh) continue;
+      const box = unionBox([a.bx, c.bx]), cy = (box.y0 + box.y1) / 2, mid = (box.x0 + box.x1) / 2;
+      const after = st.some(o => {
+        if (o === a.s || o === c.s) return false;
+        const ob = strokeBox(o);
+        return ob.x0 > mid && Math.abs((ob.y0 + ob.y1) / 2 - cy) < lh;
+      });
+      if (!after) return box;
+    }
+  }
+  return null;
+}
+
+// An empty answer box drawn a little apart from its "=" can become a region of its own. A double click
+// on either of them joins the two, so the answer is written into the box: returns the region to answer.
+function joinAnswerBox(b) {
+  const page = pageOf(b);
+  const lh = typicalHeight(page.strokes);
+  const loneBox = x => x.strokeIds.length === 1 && answerBoxesOf(x, page).length === 1;
+  const lastPart = x => { const ps = partsOf(x, page); return ps.length ? ps[ps.length - 1].box : null; };
+  // the nearest region on the same line, to the left (the equation) or to the right (the box)
+  const neighbour = (from, side, ok) => {
+    const fb = side < 0 ? blockBox(from, page) : lastPart(from);
+    if (!fb) return null;
+    let best = null, bestGap = 8 * lh;
+    for (const o of page.blocks) {
+      if (o === from || !ok(o)) continue;
+      const ob = side < 0 ? lastPart(o) : blockBox(o, page);
+      if (!ob || Math.min(fb.y1, ob.y1) - Math.max(fb.y0, ob.y0) <= 0) continue; // not on the same line
+      const gap = side < 0 ? fb.x0 - ob.x1 : ob.x0 - fb.x1;
+      if (gap >= -0.5 * lh && gap < bestGap) { bestGap = gap; best = o; }
+    }
+    return best;
+  };
+  let eq = b, box = null;
+  if (loneBox(b)) { eq = neighbour(b, -1, o => !loneBox(o)); box = b; }
+  else if (!answerBoxOf(b, page)) box = neighbour(b, 1, loneBox);
+  if (!eq || !box) return b;
+  absorb(page, eq, box);
+  eq.sig = sigOf(eq.strokeIds); // the box adds nothing to read: the reading stays valid
+  return eq;
+}
 
 function maybeEvaluate(b) {
   if (!settings.autoEval) return;
@@ -1835,9 +1937,10 @@ function maybeEvaluate(b) {
 
 // explicit: asked for by the user (double click, button); such an answer is shown even without a
 // "= □" / "= ?" in the writing. Automatic answers are shown only while the question is there.
-async function evaluateBlock(b, mode = questionOf(b) || 'calc', explicit = false) {
+// mark: send "<expression> = ?" (markExpr), for a ⊜ or a double click on writing without "?" or box
+async function evaluateBlock(b, mode = questionOf(b) || 'calc', explicit = false, mark = false) {
   const page = pageOf(b);
-  const key = sourceOf(b), expr = calcMarkOf(b, page) ? markExpr(key, mode) : key;
+  const key = sourceOf(b), expr = mark || calcMarkOf(b, page) ? markExpr(key, mode) : key;
   const ver = (b.ansVersion = (b.ansVersion || 0) + 1);
   b.answer = { status: 'busy', mode, expr: key, explicit };
   renderAll();
@@ -2455,7 +2558,7 @@ function toast(msg, x, y) {
   t.style.left = x + 'px'; t.style.top = y + 'px';
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 1400);
+  toastTimer = setTimeout(() => t.classList.remove('show'), Math.max(1400, String(msg).length * 45)); // long ones: time to read
 }
 function toastAt(msg, p) {
   const r = $('#board').getBoundingClientRect();
@@ -3241,6 +3344,7 @@ function serialize(withPhotos) {
       images: p.images || [],
       panes: p.panes || [],
       hidden: !!p.hidden,
+      board: !!p.board,
     })),
     photos: withPhotos ? state.photos.map(p => ({ ...p, status: p.status === 'busy' ? 'error' : p.status })) : [],
     cost: state.cost, calls: state.calls, costBy: state.costBy,
@@ -3264,6 +3368,7 @@ function restore(data) {
     images: p.images || [],
     panes: p.panes || [],
     hidden: !!p.hidden,
+    board: !!p.board,
   }));
   if (!state.pages.length) state.pages = [newPage()];
   state.photos = data.photos || [];
@@ -3317,7 +3422,7 @@ async function switchBoard(id, { keep = false, fetchCloud = null } = {}) {
     let next = await idb.get(boardKey(id)).catch(() => null);
     const cloud = id && fetchCloud ? await fetchCloud(id).catch(() => null) : null;
     if (cloud && (!next || (cloud.saved || '') > (next.saved || ''))) next = cloud;
-    restore(next || { app: 'ink2latex', coords: 'page', orientation: settings.orientation, pages: [] });
+    restore(next || { app: 'ink2latex', coords: 'page', orientation: 'wide', pages: [] }); // a new lecture: 16:9
   }
   saveNow();
   assign?.sync();
@@ -3404,6 +3509,7 @@ function pagePayload(p) {
     texts: p.texts || [], // typed text boxes (the viewer sanitizes them again before showing)
     images: publicImages(p.images), // slides and figures (uploaded ones only), and snapshots of HTML panes
     panes: publicPanes(p.panes), // HTML panes students run themselves ("their own copy")
+    board: !!p.board, // message board page: every student sees the comments on it
   };
 }
 
@@ -3887,6 +3993,9 @@ eraseEndEl.addEventListener('change', () => { board.eraseEnd = settings.eraseEnd
   apply(el.value);
   el.addEventListener('input', () => { settings.dotOpacity = +el.value; apply(el.value); saveSettings(); });
 }
+// students' posts: open on the board as they arrive (default), or closed circles until double-clicked
+$('#autoShowPosts').checked = settings.autoShowPosts !== false;
+$('#autoShowPosts').addEventListener('change', e => { settings.autoShowPosts = e.target.checked; saveSettings(); send?.renderDots(); });
 
 const orientEl = $('#orientation');
 orientEl.value = settings.orientation;
@@ -4026,6 +4135,7 @@ function gotoPage(i) {
 $('#pagePrev').addEventListener('click', () => state.cur > 0 && gotoPage(state.cur - 1));
 $('#pageNext').addEventListener('click', () => state.cur < state.pages.length - 1 && gotoPage(state.cur + 1));
 $('#pageNew').addEventListener('click', () => { state.pages.splice(state.cur + 1, 0, newPage()); gotoPage(state.cur + 1); });
+$('#pageBoard').addEventListener('click', () => setMessageBoard(curPage(), !curPage().board));
 
 // panel
 function applyPanel() {
@@ -4357,6 +4467,12 @@ const sessionReady = (async () => {
   try { saved = await idb.get('session'); } catch { /* not available */ }
   if (!saved) saved = store.get('ink2latex.session', null);
   try { if (saved) restore(saved); } catch { /* start fresh */ }
+  // 16:9 became the default page format (2026-10-29): once, a board with nothing on it switches to it
+  if (!settings.wide1029) {
+    settings.wide1029 = true;
+    if (settings.orientation !== 'wide' && state.pages.every(pageIsEmpty)) { setOrientation('wide'); renderAll(); }
+    saveSettings();
+  }
 })();
 
 // for automated testing
@@ -4452,4 +4568,4 @@ $('#stuSave').addEventListener('click', async () => {
 });
 
 window.ink2latex = { state, board, regroup, settings, interpretPage, evaluateBlock, questionOf, renderAll, send, assign, flattenPage,
-  regionAt, bumpLayout: () => { layoutVer++; } };
+  regionAt, gotoPage, bumpLayout: () => { layoutVer++; } };

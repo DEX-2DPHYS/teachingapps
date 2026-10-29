@@ -93,8 +93,22 @@ body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor:
 }
 .pin.question .pin-text { background: #fff; border-color: #d32f2f; }
 .pin.comment .pin-text { background: #fff; border-color: #2e7d32; }
+.pin.post .pin-dot { background: #e0a000; color: #fff; border: 2px solid #fff; font-size: 13px; }
+.pin.post .pin-text { background: #fff8d6; border-color: #e0a000; }
 .pin.expanded .pin-text { display: block; }
 .pin-text .st { display: block; font-size: 11px; color: #6b6b70; margin-top: 2px; }
+/* everyone's posts as open notes */
+.b-note {
+  position: absolute; width: max-content; max-width: 230px; min-width: 100px; padding: 6px 9px; border-radius: 8px; pointer-events: auto;
+  background: #fff8d6; color: #1d1d1f; border: 2px solid #e0a000; box-shadow: 0 3px 10px rgba(0,0,0,.2);
+  font-size: 14px; overflow-wrap: anywhere;
+}
+.b-note.own { border-style: dashed; }
+.b-note:hover { z-index: 2; }
+.b-note .st { display: block; font-size: 11px; color: #6b6b70; margin-top: 2px; }
+.b-col { position: absolute; left: 6px; top: 34px; bottom: 6px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; overflow-y: auto; pointer-events: none; }
+.b-col .b-note { position: relative; }
+#boardHint { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); z-index: 9; background: #b07d00; color: #fff; font-size: 13px; border-radius: 6px; padding: 3px 10px; pointer-events: none; max-width: calc(100% - 12px); text-align: center; }
 
 /* the text field a double-click opens, with its top left corner at the click */
 #placeForm {
@@ -105,6 +119,8 @@ body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor:
 #placeText { font: inherit; color: var(--text); background: var(--btn); border: 1px solid var(--accent); border-radius: 6px; padding: 6px 8px; resize: vertical; }
 .place-act { display: flex; flex-wrap: wrap; gap: 5px; }
 .place-act button { padding: 4px 8px; font-size: 14px; }
+.place-act .post { background: #e0a000; color: #1b1b1b; border-color: #e0a000; font-weight: 600; }
+.place-act .post:hover { background: #c78f00; }
 .place-act .comment { background: #2e7d32; color: #fff; border-color: #2e7d32; }
 .place-act .comment:hover { background: #1b5e20; }
 .place-act .ask { background: #d32f2f; color: #fff; border-color: #d32f2f; }
