@@ -1,18 +1,18 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-29.1240';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-29.1240';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-29.1240';
-import { initSend } from './send.js?v=2026-10-29.1240';
-import { initStudent } from './student.js?v=2026-10-29.1240';
-import { initAssign } from './assign.js?v=2026-10-29.1240';
-import { initVoice } from './voice.js?v=2026-10-29.1240';
-import { EMBED, initEmbed } from './embed.js?v=2026-10-29.1240';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-29.1240';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-29.1240';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-29.1240';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-29.1240';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-29.1250';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-29.1250';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-29.1250';
+import { initSend } from './send.js?v=2026-10-29.1250';
+import { initStudent } from './student.js?v=2026-10-29.1250';
+import { initAssign } from './assign.js?v=2026-10-29.1250';
+import { initVoice } from './voice.js?v=2026-10-29.1250';
+import { EMBED, initEmbed } from './embed.js?v=2026-10-29.1250';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-29.1250';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-29.1250';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-29.1250';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-29.1250';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1584,7 +1584,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-29.1240');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-29.1250');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -3996,6 +3996,14 @@ eraseEndEl.addEventListener('change', () => { board.eraseEnd = settings.eraseEnd
 // students' posts: open on the board as they arrive (default), or closed circles until double-clicked
 $('#autoShowPosts').checked = settings.autoShowPosts !== false;
 $('#autoShowPosts').addEventListener('change', e => { settings.autoShowPosts = e.target.checked; saveSettings(); send?.renderDots(); });
+// one size for all students' posts, comments and questions (the same as the right-click slider)
+$('#noteScale').value = settings.noteScale || 1;
+$('#noteScaleVal').textContent = Math.round((settings.noteScale || 1) * 100) + ' %';
+$('#noteScale').addEventListener('input', e => {
+  const v = +e.target.value;
+  if (send) send.setNoteScale(v);
+  else { settings.noteScale = v; saveSettings(); $('#noteScaleVal').textContent = Math.round(v * 100) + ' %'; }
+});
 
 const orientEl = $('#orientation');
 orientEl.value = settings.orientation;

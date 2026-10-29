@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-29.1240';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-29.1250';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -407,14 +407,14 @@ export function initSend(app) {
   // "Show posts open" is off; a double-click on a post closes / opens it (q.shown, kept in the database,
   // the students follow it); a message board page shows them open whatever the setting
   // replies: students write under each other's posts (kind 'reply', parent = the post), shown under it.
-  // scale: the size of a post, comment or question on the board (right-click → slider), also on the
+  // noteScale: one size for all of them on the board (right-click → slider, or Settings), also on the
   // students' computers (not phones)
   const kindOf = q => (['comment', 'post', 'reply'].includes(q.kind) ? q.kind : 'question');
   const KIND_LABEL = { post: '📌 post', reply: '↩ reply', comment: '💬 comment', question: '❓ question' };
   const isOpen = q => q.status === 'open';
   const postOpen = (q, pg) => q.shown ?? (!!pg?.board || app.settings.autoShowPosts !== false);
   const repliesOf = q => questions.filter(r => r.parent === q.id && kindOf(r) === 'reply' && r.status !== 'hidden');
-  const sc = q => (q.scale > 0 ? q.scale : 1);
+  const sc = () => (app.settings.noteScale > 0 ? app.settings.noteScale : 1);
 
   async function loadQuestions() {
     if (!S.user || !S.lecture) return;
@@ -455,6 +455,7 @@ export function initSend(app) {
     renderDots();
     if (!S.user || !S.lecture) { qBtn.hidden = true; return; }
     loadQuestions();
+    pushNoteScale(); // this board's size for the students' notes
     qTimer = setInterval(loadQuestions, 15000); // safety net next to the live channel
     client().then(c => {
       qChannel = c.channel('questions-' + S.lecture.id)
@@ -541,7 +542,7 @@ export function initSend(app) {
         const q = p && questions.find(x => x.id === p.dataset.id);
         if (!q) return;
         e.preventDefault(); e.stopPropagation();
-        openScale(q, e.clientX, e.clientY);
+        openScale(e.clientX, e.clientY);
       });
     }
     dotsLayer.dataset.page = app.state.cur;
@@ -559,46 +560,53 @@ export function initSend(app) {
     const note = (q, style = '') => `<div class="b-note st-${q.status}${bump.has(q.id) || repliesOf(q).some(r => bump.has(r.id)) ? ' bump' : ''}" data-id="${q.id}" title="Double-click to close it (for everyone) · right-click: size"${style}>
         <div class="q-text">${esc(q.text)}${q.edited_at ? ' <span class="dim">(edited)</span>' : ''}</div>${replies(q)}${q.answer ? `<div class="q-answer"><b>Your reply:</b> ${esc(q.answer)}</div>` : ''}
         <div class="q-act">${actions(q, false)}</div></div>`;
-    const chip = q => `<div class="b-chip" data-id="${q.id}" style="--sc:${sc(q)}" title="${esc(q.text)} (double-click to open it)">📌 ${esc(q.text.slice(0, 24))}${q.text.length > 24 ? '…' : ''}</div>`;
+    const chip = q => `<div class="b-chip" data-id="${q.id}" style="--sc:${sc()}" title="${esc(q.text)} (double-click to open it)">📌 ${esc(q.text.slice(0, 24))}${q.text.length > 24 ? '…' : ''}</div>`;
     const W = app.board.pageW * s, H = app.board.pageH * s;
     const loose = here.filter(q => isPost(q) && !placed(q));
     const icon = { post: '📌', comment: '💬', question: '?' };
     keepDrafts(() => {
       dotsLayer.innerHTML = here.filter(placed).map(q => isNote(q)
-        ? note(q, ` style="--sc:${sc(q)};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W - 270 * sc(q) ? '-100%' : '0'},${q.y * s > H - 120 * sc(q) ? '-100%' : '0'})"`)
+        ? note(q, ` style="--sc:${sc()};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W - 270 * sc() ? '-100%' : '0'},${q.y * s > H - 120 * sc() ? '-100%' : '0'})"`)
         : `
-        <div class="s-dot k-${kindOf(q)} st-${q.status}${q.x > app.board.pageW / 2 ? ' flip' : ''}${q.id === expanded ? ' expanded' : ''}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" style="--sc:${sc(q)};left:${q.x * s}px;top:${q.y * s}px">
+        <div class="s-dot k-${kindOf(q)} st-${q.status}${q.x > app.board.pageW / 2 ? ' flip' : ''}${q.id === expanded ? ' expanded' : ''}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" style="--sc:${sc()};left:${q.x * s}px;top:${q.y * s}px">
           <button class="s-dot-c" title="${esc(q.text)}${isPost(q) ? ' (double-click to open it)' : ''}">${icon[kindOf(q)]}</button>
           <div class="s-dot-text"><div class="q-text">${esc(q.text)}</div>${replyBox(q)}<div class="q-act">${actions(q, false)}</div></div>
         </div>`).join('')
-        + (loose.length ? `<div class="b-col">${loose.map(q => (isNote(q) ? note(q, ` style="--sc:${sc(q)}"`) : chip(q))).join('')}</div>` : '');
+        + (loose.length ? `<div class="b-col">${loose.map(q => (isNote(q) ? note(q, ` style="--sc:${sc()}"`) : chip(q))).join('')}</div>` : '');
     });
   }
-  // the size slider (right-click): changes the board at once, saved after a short pause
-  let scaleTimer = 0;
-  function openScale(q, x, y) {
+  // one size for ALL students' posts, comments and questions (settings.noteScale): the right-click
+  // slider and Settings → Board change the board at once; the lecture gets it after a short pause
+  // (lectures.note_scale), so the students' computers follow (phones keep the normal size)
+  let scaleTimer = 0, scaleWarned = false;
+  function setNoteScale(v, now = false) {
+    app.settings.noteScale = v;
+    app.saveSettings();
+    renderDots();
+    const pop = $('#scalePop input'), set = $('#noteScale');
+    for (const r of [pop, set]) if (r && +r.value !== v) r.value = v;
+    for (const l of document.querySelectorAll('#scalePop span, #noteScaleVal')) l.textContent = Math.round(v * 100) + ' %';
+    clearTimeout(scaleTimer);
+    scaleTimer = setTimeout(pushNoteScale, now ? 0 : 400);
+  }
+  async function pushNoteScale() {
+    if (!S.user || !S.lecture) return;
+    const { error } = await (await client()).from('lectures').update({ note_scale: sc() === 1 ? null : sc() }).eq('id', S.lecture.id);
+    if (error && !scaleWarned) { scaleWarned = true; app.toast?.('Size not sent to the students: ' + error.message + (/note_scale|column/i.test(error.message) ? ' (run supabase-size.sql)' : '')); }
+  }
+  function openScale(x, y) {
     $('#scalePop')?.remove();
     const p = document.createElement('div');
     p.id = 'scalePop';
     const pct = v => Math.round(v * 100) + ' %';
-    p.innerHTML = `<div class="dim small">Size of this ${kindOf(q)} (also on the students' computers, not phones)</div>
-      <div class="row"><input type="range" min="0.5" max="3" step="0.05" value="${sc(q)}"> <span>${pct(sc(q))}</span> <button data-r title="Normal size">100 %</button></div>`;
+    p.innerHTML = `<div class="dim small">Size of all students' posts, comments and questions (also on the students' computers, not phones)</div>
+      <div class="row"><input type="range" min="0.5" max="3" step="0.05" value="${sc()}"> <span>${pct(sc())}</span> <button data-r title="Normal size">100 %</button></div>`;
     document.body.appendChild(p);
     p.style.left = Math.max(4, Math.min(x, innerWidth - p.offsetWidth - 4)) + 'px';
     p.style.top = Math.max(4, Math.min(y, innerHeight - p.offsetHeight - 4)) + 'px';
-    const r = p.querySelector('input'), lab = p.querySelector('span');
-    const set = v => {
-      q.scale = v === 1 ? null : v;
-      r.value = v; lab.textContent = pct(v);
-      renderDots();
-      clearTimeout(scaleTimer);
-      scaleTimer = setTimeout(async () => {
-        const { error } = await (await client()).from('questions').update({ scale: q.scale }).eq('id', q.id);
-        if (error) app.toast?.('Size not saved: ' + error.message + (/scale|column/i.test(error.message) ? ' (run supabase-replies.sql)' : ''));
-      }, 400);
-    };
-    r.addEventListener('input', () => set(+r.value));
-    p.querySelector('[data-r]').addEventListener('click', () => set(1));
+    const r = p.querySelector('input');
+    r.addEventListener('input', () => setNoteScale(+r.value));
+    p.querySelector('[data-r]').addEventListener('click', () => setNoteScale(1));
     p.addEventListener('pointerdown', e => e.stopPropagation());
     const close = e => {
       if (e.type === 'keydown' ? e.key !== 'Escape' : p.contains(e.target)) return;
@@ -763,6 +771,6 @@ export function initSend(app) {
     if (!S.user) await refreshUser().catch(() => {});
     return S.user ? client() : null;
   }
-  return { db, cloudBoard, changed, isLive: () => S.live, push, renderDots: () => renderDots(), accessToken, uploadImage, uploadText, courseSettings, saveCourseSettings };
+  return { db, cloudBoard, changed, isLive: () => S.live, push, renderDots: () => renderDots(), setNoteScale, accessToken, uploadImage, uploadText, courseSettings, saveCourseSettings };
 }
 

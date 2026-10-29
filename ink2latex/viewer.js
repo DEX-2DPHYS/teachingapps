@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-29.1240';
-import { TextLayer } from './textboxes.js?v=2026-10-29.1240';
-import { drawImages } from './figures.js?v=2026-10-29.1240';
-import { initFullscreen } from './fullscreen.js?v=2026-10-29.1240';
-import { paneLayer } from './panes.js?v=2026-10-29.1240';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-29.1250';
+import { TextLayer } from './textboxes.js?v=2026-10-29.1250';
+import { drawImages } from './figures.js?v=2026-10-29.1250';
+import { initFullscreen } from './fullscreen.js?v=2026-10-29.1250';
+import { paneLayer } from './panes.js?v=2026-10-29.1250';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -90,8 +90,9 @@ async function openLecture() {
   $('#lecCourse').textContent = lecture.course_code;
   document.title = `${lecture.title} · DTUwrite`;
   await refreshList();
-  const { data } = await sb.from('lectures').select('current_page').eq('id', lecture.id).maybeSingle();
+  const data = await lectureRow();
   lecturerPage = data?.current_page ?? 0;
+  setNoteScale(data?.note_scale);
   await showPage(nearestPage($('#follow').checked ? lecturerPage : 0));
   subscribe();
   // safety net if live updates are blocked by the network: check every 20 s
@@ -134,7 +135,7 @@ function subscribe() {
     .on('postgres_changes', { event: '*', schema: SCHEMA, table: 'lecture_pages', filter: `lecture_id=eq.${lecture.id}` },
       p => pageChanged(p.new?.page_no ?? p.old?.page_no))
     .on('postgres_changes', { event: 'UPDATE', schema: SCHEMA, table: 'lectures', filter: `id=eq.${lecture.id}` },
-      p => { lecturerPage = p.new.current_page; if ($('#follow').checked) refreshList().then(() => showPage(nearestPage(lecturerPage))); else updateNav(); })
+      p => { setNoteScale(p.new.note_scale); if (p.new.current_page === lecturerPage) return; lecturerPage = p.new.current_page; if ($('#follow').checked) refreshList().then(() => showPage(nearestPage(lecturerPage))); else updateNav(); })
     .on('postgres_changes', { event: '*', schema: SCHEMA, table: 'questions', filter: `lecture_id=eq.${lecture.id}` }, () => loadTyped(cur).catch(() => {}))
     .subscribe(status => {
       $('#liveDot').className = status === 'SUBSCRIBED' ? 'on' : status === 'CLOSED' || status === 'CHANNEL_ERROR' ? 'off' : '';
@@ -162,7 +163,8 @@ async function poll() {
   loadTyped(cur).catch(() => {}); // replies from the lecturer
   const before = pages.find(p => p.page_no === cur)?.version;
   await refreshList();
-  const { data } = await sb.from('lectures').select('current_page').eq('id', lecture.id).maybeSingle();
+  const data = await lectureRow();
+  setNoteScale(data?.note_scale);
   if (data && data.current_page !== lecturerPage) {
     lecturerPage = data.current_page;
     if ($('#follow').checked) { await showPage(nearestPage(lecturerPage)); return; }
@@ -695,9 +697,22 @@ const KIND = {
   question: { icon: '?', done: 'question sent (anonymous)', fail: 'question not sent: ' },
 };
 const kindOf = q => (['comment', 'post', 'reply'].includes(q.kind) ? q.kind : 'question');
-// the lecturer's size for a post, comment or question: on computers and tablets; phones keep the normal size
 const PHONE = Math.min(screen.width, screen.height) < 600;
-const scOf = q => (!PHONE && q.scale > 0 ? q.scale : 1);
+// one size for all of them, chosen by the lecturer (lectures.note_scale); phones keep the normal size
+let noteScale = 1;
+const scOf = () => (!PHONE && noteScale > 0 ? noteScale : 1);
+function setNoteScale(v) {
+  v = v > 0 ? v : 1;
+  if (v === noteScale) return;
+  noteScale = v;
+  renderPins();
+}
+// the lecture's page and size for the students' notes (no note_scale before supabase-size.sql)
+async function lectureRow() {
+  let { data, error } = await sb.from('lectures').select('current_page, note_scale').eq('id', lecture.id).maybeSingle();
+  if (error) ({ data } = await sb.from('lectures').select('current_page').eq('id', lecture.id).maybeSingle());
+  return data;
+}
 
 // pins on the page for placed notes, comments and questions; tap one to read it
 function renderPins() {
@@ -724,9 +739,9 @@ function renderPins() {
   const loose = open.filter(q => !placed(q));
   const { s, W, H } = geo;
   box.hidden = view === 'doc';
-  box.innerHTML = open.filter(placed).map(q => note(q, ` style="--sc:${scOf(q)};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W * s - 250 * scOf(q) ? '-100%' : '0'},${q.y * s > H * s - 100 * scOf(q) ? '-100%' : '0'})"`)).join('')
-    + (loose.length ? `<div class="b-col">${loose.map(q => note(q, ` style="--sc:${scOf(q)}"`)).join('')}</div>` : '')
-    + list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}" style="--sc:${scOf(p)};left:${p.x * geo.s}px;top:${p.y * geo.s}px">
+  box.innerHTML = open.filter(placed).map(q => note(q, ` style="--sc:${scOf()};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W * s - 250 * scOf() ? '-100%' : '0'},${q.y * s > H * s - 100 * scOf() ? '-100%' : '0'})"`)).join('')
+    + (loose.length ? `<div class="b-col">${loose.map(q => note(q, ` style="--sc:${scOf()}"`)).join('')}</div>` : '')
+    + list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}" style="--sc:${p.k === 'note' ? 1 : scOf()};left:${p.x * geo.s}px;top:${p.y * geo.s}px">
       <button class="pin-dot" title="${esc(p.text)}">${KIND[p.k].icon}</button>
       <div class="pin-text">${renderMixed(p.text)}<span class="st">${esc(p.tag)}</span>${p.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(p.answer)}</div>` : ''}</div></div>`).join('');
   const hint = $('#boardHint');
