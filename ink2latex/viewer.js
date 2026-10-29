@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-29.1201';
-import { TextLayer } from './textboxes.js?v=2026-10-29.1201';
-import { drawImages } from './figures.js?v=2026-10-29.1201';
-import { initFullscreen } from './fullscreen.js?v=2026-10-29.1201';
-import { paneLayer } from './panes.js?v=2026-10-29.1201';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-29.1240';
+import { TextLayer } from './textboxes.js?v=2026-10-29.1240';
+import { drawImages } from './figures.js?v=2026-10-29.1240';
+import { initFullscreen } from './fullscreen.js?v=2026-10-29.1240';
+import { paneLayer } from './panes.js?v=2026-10-29.1240';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -670,15 +670,19 @@ async function loadTyped(no) {
   const qsel = cols => sb.from('questions').select(cols).eq('lecture_id', lecture.id).eq('page_no', no).order('created_at');
   const [n, q0] = await Promise.all([
     sb.from('student_notes').select('text, x, y, updated_at').eq('lecture_id', lecture.id).eq('page_no', no).eq('kind', 'text').order('updated_at'),
-    qsel('text, kind, status, x, y, answer, shown, created_at, student'),
+    qsel('id, text, kind, status, x, y, answer, shown, parent, scale, edited_at, created_at, student'),
   ]);
-  // before the setup is re-run, questions have no kind, x, y, answer (shown: supabase-board.sql) columns yet
+  // before the setup is re-run, questions have no kind, x, y, answer (shown: supabase-board.sql; parent,
+  // scale, edited_at: supabase-replies.sql) columns yet
   let q = q0;
-  if (q.error) q = await qsel('text, kind, status, x, y, answer, created_at, student');
+  if (q.error) q = await qsel('id, text, kind, status, x, y, answer, shown, created_at, student');
+  if (q.error) q = await qsel('id, text, kind, status, x, y, answer, created_at, student');
   if (q.error) q = await qsel('text, status, created_at');
   const all = q.error ? [] : q.data || [];
   const mine = x => !x.student || x.student === me;
-  typed.set(no, { notes: n.data || [], questions: all.filter(mine), posts: all.filter(x => kindOf(x) === 'post' && x.status !== 'hidden') });
+  const live = x => x.status !== 'hidden';
+  typed.set(no, { notes: n.data || [], questions: all.filter(mine), posts: all.filter(x => kindOf(x) === 'post' && live(x)),
+    replies: all.filter(x => kindOf(x) === 'reply' && live(x)) });
   renderMine();
   renderPins();
 }
@@ -686,10 +690,14 @@ async function loadTyped(no) {
 const KIND = {
   note: { icon: '📝', done: 'note saved', fail: 'note not saved: ' },
   post: { icon: '📌', done: 'posted for everyone (anonymous)', fail: 'not posted: ' },
+  reply: { icon: '↩', done: 'reply posted (anonymous)', fail: 'reply not posted: ' },
   comment: { icon: '💬', done: 'comment sent (anonymous)', fail: 'comment not sent: ' },
   question: { icon: '?', done: 'question sent (anonymous)', fail: 'question not sent: ' },
 };
-const kindOf = q => (q.kind === 'comment' || q.kind === 'post' ? q.kind : 'question');
+const kindOf = q => (['comment', 'post', 'reply'].includes(q.kind) ? q.kind : 'question');
+// the lecturer's size for a post, comment or question: on computers and tablets; phones keep the normal size
+const PHONE = Math.min(screen.width, screen.height) < 600;
+const scOf = q => (!PHONE && q.scale > 0 ? q.scale : 1);
 
 // pins on the page for placed notes, comments and questions; tap one to read it
 function renderPins() {
@@ -706,23 +714,33 @@ function renderPins() {
   const closed = posts.filter(q => q.shown === false && placed(q)).map(q => ({ ...q, k: 'post', tag: (yours(q) ? 'your post' : 'post') + ' · closed by the lecturer' }));
   const list = [
     ...($('#showNotes').checked ? t.notes.filter(placed).map(n => ({ ...n, k: 'note', tag: 'private note' })) : []),
-    ...($('#showQuestions').checked ? t.questions.filter(q => placed(q) && kindOf(q) !== 'post').map(q => ({ ...q, k: kindOf(q), tag: status[q.status] || q.status })) : []),
+    ...($('#showQuestions').checked ? t.questions.filter(q => placed(q) && !['post', 'reply'].includes(kindOf(q))).map(q => ({ ...q, k: kindOf(q), tag: status[q.status] || q.status })) : []),
     ...closed,
   ];
-  const note = (q, style = '') => `<div class="b-note${yours(q) ? ' own' : ''}"${style}>${renderMixed(q.text)}${yours(q) ? '<span class="st">yours</span>' : ''}${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`;
+  // a post with the replies under it; tap your own (post or reply) to edit it, another's to reply
+  const edited = q => (q.edited_at ? ' <span class="st inline">(edited)</span>' : '');
+  const replies = q => { const rs = (t.replies || []).filter(r => r.parent === q.id); return rs.length ? `<div class="b-replies">${rs.map(r => `<div class="b-reply${yours(r) ? ' own' : ''}" data-id="${r.id}">↳ ${renderMixed(r.text)}${edited(r)}</div>`).join('')}</div>` : ''; };
+  const note = (q, style = '') => `<div class="b-note${yours(q) ? ' own' : ''}" data-id="${q.id}" title="${yours(q) ? 'Tap to edit your post' : 'Tap to reply'}"${style}>${renderMixed(q.text)}${edited(q)}${yours(q) ? '<span class="st">yours · tap to edit</span>' : ''}${replies(q)}${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`;
   const loose = open.filter(q => !placed(q));
   const { s, W, H } = geo;
   box.hidden = view === 'doc';
-  box.innerHTML = open.filter(placed).map(q => note(q, ` style="left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W * s - 250 ? '-100%' : '0'},${q.y * s > H * s - 100 ? '-100%' : '0'})"`)).join('')
-    + (loose.length ? `<div class="b-col">${loose.map(q => note(q)).join('')}</div>` : '')
-    + list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}" style="left:${p.x * geo.s}px;top:${p.y * geo.s}px">
+  box.innerHTML = open.filter(placed).map(q => note(q, ` style="--sc:${scOf(q)};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W * s - 250 * scOf(q) ? '-100%' : '0'},${q.y * s > H * s - 100 * scOf(q) ? '-100%' : '0'})"`)).join('')
+    + (loose.length ? `<div class="b-col">${loose.map(q => note(q, ` style="--sc:${scOf(q)}"`)).join('')}</div>` : '')
+    + list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}" style="--sc:${scOf(p)};left:${p.x * geo.s}px;top:${p.y * geo.s}px">
       <button class="pin-dot" title="${esc(p.text)}">${KIND[p.k].icon}</button>
       <div class="pin-text">${renderMixed(p.text)}<span class="st">${esc(p.tag)}</span>${p.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(p.answer)}</div>` : ''}</div></div>`).join('');
   const hint = $('#boardHint');
-  if (hint) hint.hidden = !isBoardPage() || view === 'doc';
+  if (hint) {
+    hint.hidden = !isBoardPage() || view === 'doc';
+    // it fades after a few seconds (on a phone it would cover the posts); again on every new page
+    if (!hint.hidden && hintPage !== cur) { hintPage = cur; hint.classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => hint.classList.add('gone'), 7000); }
+  }
 }
+let hintPage = null, hintTimer = 0;
 const isBoardPage = () => !!row?.board && row.page_no === cur;
 $('#pins').addEventListener('click', e => {
+  const n = e.target.closest('.b-reply, .b-note');
+  if (n) { e.stopPropagation(); openPostForm(n.dataset.id, e.clientX, e.clientY); return; }
   const pin = e.target.closest('.pin');
   if (!pin) return;
   e.stopPropagation();
@@ -748,6 +766,55 @@ async function addMine(text, kind, x = null, y = null) {
   setNoteStatus(KIND[kind].done);
   await loadTyped(cur);
 }
+// tapping a post or a reply: your own → edit it; another's → reply under the post (everyone sees it)
+let postTarget = null; // { id, edit } while the form is open
+function openPostForm(id, clientX, clientY) {
+  const t = typed.get(cur) || {};
+  const q = [...(t.posts || []), ...(t.replies || [])].find(x => x.id === id);
+  if (!q) return;
+  const edit = q.student === me;
+  const post = kindOf(q) === 'reply' ? (t.posts || []).find(p => p.id === q.parent) : q;
+  if (!post) return;
+  postTarget = { id: edit ? q.id : post.id, edit, page: cur };
+  const f = $('#postForm');
+  f.hidden = false;
+  $('#postWhat').textContent = edit ? `Edit your ${kindOf(q)}` : `Reply to: “${post.text.slice(0, 60)}${post.text.length > 60 ? '…' : ''}” (everyone sees it, anonymous)`;
+  $('#postText').value = edit ? q.text : '';
+  $('#postSend').textContent = edit ? '💾 Save' : '↩ Reply';
+  const w = f.offsetWidth, h = f.offsetHeight;
+  f.style.left = Math.max(4, Math.min(clientX - 10, innerWidth - w - 4)) + 'px';
+  f.style.top = Math.max(4, Math.min(clientY - 10, innerHeight - h - 4)) + 'px';
+  $('#postText').focus();
+}
+function closePostForm() { postTarget = null; const f = $('#postForm'); if (f) f.hidden = true; }
+$('#postCancel').addEventListener('click', closePostForm);
+$('#postText').addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePostForm();
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#postForm').requestSubmit(); }
+});
+document.addEventListener('pointerdown', e => {
+  if (!$('#postForm').hidden && !e.target.closest('#postForm, .b-note, .b-reply')) closePostForm();
+});
+$('#postForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const text = $('#postText').value.trim(), tg = postTarget;
+  if (!text || !tg || tg.page !== cur) { closePostForm(); return; }
+  closePostForm();
+  try {
+    if (tg.edit) {
+      const { error } = await sb.rpc('edit_post', { post: tg.id, new_text: text });
+      if (error) throw /function|schema cache/i.test(error.message) ? new Error('editing is not switched on in this course yet (the lecturer has to update the database)') : error;
+      setNoteStatus('post saved');
+    } else {
+      const { error } = await sb.from('questions').insert({ lecture_id: lecture.id, page_no: cur, text, kind: 'reply', parent: tg.id });
+      if (error) throw /kind_check|check constraint|parent|column|schema cache/i.test(error.message) ? new Error('replies are not switched on in this course yet (the lecturer has to update the database)') : error;
+      setNoteStatus(KIND.reply.done);
+    }
+    await loadTyped(cur);
+  } catch (err) {
+    setNoteStatus((tg.edit ? 'not saved: ' : KIND.reply.fail) + (err.message || err));
+  }
+});
 // in the side field: "P: ..." = post, "Q: ..." = question, "C: ..." = comment, anything else = private note
 function parseTyped(raw) {
   const m = raw.match(/^([qcp])\s*[:;]\s*([\s\S]+)/i);
@@ -814,7 +881,7 @@ $('#sheet').addEventListener('pointermove', e => {
 // A tap is a short press that hardly moves: the end of a pen stroke is not a tap.
 let lastTap = null;
 $('#sheet').addEventListener('pointerup', e => {
-  if (noteMode || textMode || e.target.closest('.pin, .b-note')) return;
+  if (noteMode || textMode || e.target.closest('.pin, .b-note, #postForm')) return;
   const now = performance.now();
   if (!press || press.moved > 12 || now - press.t > 350) { lastTap = null; return; }
   if (lastTap && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
@@ -830,7 +897,7 @@ function renderMine() {
   const status = { open: 'sent', answered: 'answered', hidden: 'seen' };
   const where = x => (x.x != null ? ' · 📍 on the page' : '');
   $('#myList').innerHTML = [
-    ...t.questions.map(q => `<div class="my ${kindOf(q)}">${{ post: '📌', comment: '💬', question: '❓' }[kindOf(q)]} ${renderMixed(q.text)}<span class="st">${kindOf(q) === 'post' ? (q.status === 'hidden' ? 'removed by the lecturer' : 'posted for everyone') : status[q.status] || q.status}${where(q)}</span>${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`),
+    ...t.questions.map(q => `<div class="my ${kindOf(q)}">${{ post: '📌', reply: '↩', comment: '💬', question: '❓' }[kindOf(q)]} ${renderMixed(q.text)}<span class="st">${['post', 'reply'].includes(kindOf(q)) ? (q.status === 'hidden' ? 'removed by the lecturer' : kindOf(q) === 'reply' ? 'reply for everyone' : 'posted for everyone') : status[q.status] || q.status}${where(q)}</span>${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`),
     ...t.notes.map(x => `<div class="my">📝 ${renderMixed(x.text)}${x.x != null ? '<span class="st">📍 on the page</span>' : ''}</div>`),
   ].join('');
 }

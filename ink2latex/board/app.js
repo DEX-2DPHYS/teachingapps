@@ -1,18 +1,18 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-29.1201';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-29.1201';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-29.1201';
-import { initSend } from './send.js?v=2026-10-29.1201';
-import { initStudent } from './student.js?v=2026-10-29.1201';
-import { initAssign } from './assign.js?v=2026-10-29.1201';
-import { initVoice } from './voice.js?v=2026-10-29.1201';
-import { EMBED, initEmbed } from './embed.js?v=2026-10-29.1201';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-29.1201';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-29.1201';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-29.1201';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-29.1201';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-29.1240';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-29.1240';
+import { straightenFigure, recognize } from './shapes.js?v=2026-10-29.1240';
+import { initSend } from './send.js?v=2026-10-29.1240';
+import { initStudent } from './student.js?v=2026-10-29.1240';
+import { initAssign } from './assign.js?v=2026-10-29.1240';
+import { initVoice } from './voice.js?v=2026-10-29.1240';
+import { EMBED, initEmbed } from './embed.js?v=2026-10-29.1240';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-29.1240';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-29.1240';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-29.1240';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-29.1240';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -1584,7 +1584,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-29.1201');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-29.1240');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {

@@ -76,7 +76,7 @@ body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor:
 
 /* placed notes and questions */
 #pins { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
-.pin { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; z-index: 1; }
+.pin { position: absolute; transform: translate(-50%, -50%) scale(var(--sc, 1)); pointer-events: auto; z-index: 1; }
 .pin.expanded { z-index: 2; }
 .pin-dot {
   width: 28px; height: 28px; padding: 0; border-radius: 50%; font: 700 15px system-ui, sans-serif;
@@ -99,16 +99,26 @@ body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor:
 .pin-text .st { display: block; font-size: 11px; color: #6b6b70; margin-top: 2px; }
 /* everyone's posts as open notes */
 .b-note {
-  position: absolute; width: max-content; max-width: 230px; min-width: 100px; padding: 6px 9px; border-radius: 8px; pointer-events: auto;
+  position: absolute; width: max-content; max-width: calc(230px * var(--sc, 1)); min-width: calc(100px * var(--sc, 1)); padding: .4em .65em; border-radius: 8px; pointer-events: auto; cursor: pointer;
   background: #fff8d6; color: #1d1d1f; border: 2px solid #e0a000; box-shadow: 0 3px 10px rgba(0,0,0,.2);
-  font-size: 14px; overflow-wrap: anywhere;
+  font-size: calc(14px * var(--sc, 1)); overflow-wrap: anywhere;
 }
 .b-note.own { border-style: dashed; }
 .b-note:hover { z-index: 2; }
 .b-note .st { display: block; font-size: 11px; color: #6b6b70; margin-top: 2px; }
+.b-note .st.inline { display: inline; }
+.b-replies { margin-top: .3em; border-top: 1px solid rgba(176,125,0,.35); padding-top: .2em; }
+.b-reply { font-size: .86em; margin-top: .15em; }
+.b-reply.own { font-style: italic; }
+#postForm { position: fixed; z-index: 30; width: min(360px, calc(100vw - 8px)); display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.28); }
+#postText { font: inherit; color: var(--text); background: var(--btn); border: 1px solid #e0a000; border-radius: 6px; padding: 6px 8px; resize: vertical; }
+#postForm .place-act button:first-child { margin-right: auto; }
 .b-col { position: absolute; left: 6px; top: 34px; bottom: 6px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; overflow-y: auto; pointer-events: none; }
 .b-col .b-note { position: relative; }
-#boardHint { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); z-index: 9; background: #b07d00; color: #fff; font-size: 13px; border-radius: 6px; padding: 3px 10px; pointer-events: none; max-width: calc(100% - 12px); text-align: center; }
+#boardHint { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); z-index: 9; background: #b07d00; color: #fff; font-size: 13px; border-radius: 6px; padding: 3px 10px; pointer-events: none; max-width: calc(100% - 12px); text-align: center;  transition: opacity .8s; }
+#boardHint.gone { opacity: 0; }
+#boardHint .short { display: none; }
+@media (max-width: 600px) { #boardHint { font-size: 11px; padding: 2px 7px; } #boardHint .long { display: none; } #boardHint .short { display: inline; } }
 
 /* the text field a double-click opens, with its top left corner at the click */
 #placeForm {

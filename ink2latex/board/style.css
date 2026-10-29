@@ -401,7 +401,7 @@ details textarea {
 #qWin .q-act button { font-size: 12px; padding: 2px 8px; }
 /* students' comments (green) and questions (red) on the board, where they placed them */
 #studentDots { position: absolute; inset: 0; pointer-events: none; z-index: 7; }
-.s-dot { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; opacity: var(--dot-opacity, 1); transition: opacity .15s; }
+.s-dot { position: absolute; transform: translate(-50%, -50%) scale(var(--sc, 1)); pointer-events: auto; opacity: var(--dot-opacity, 1); transition: opacity .15s; }
 .s-dot:hover, .s-dot.expanded { opacity: 1; } /* the one pointed at or opened: always readable */
 .s-dot.expanded { z-index: 2; }
 .s-dot-c {
@@ -432,19 +432,27 @@ details textarea {
 #qWin .q-item.k-comment { border-left-color: #2e7d32; }
 /* students' posts (📌, public) as open notes (always fully visible, whatever the marker setting) */
 .b-note {
-  position: absolute; width: max-content; max-width: 260px; min-width: 120px; padding: 7px 10px; border-radius: 8px; pointer-events: auto; cursor: default; user-select: none;
+  position: absolute; width: max-content; max-width: calc(260px * var(--sc, 1)); min-width: calc(120px * var(--sc, 1)); padding: .45em .65em; border-radius: 8px; pointer-events: auto; cursor: default; user-select: none;
   background: #fff8d6; color: #1b1b1b; border: 2px solid #e0a000; box-shadow: 0 3px 12px rgba(0,0,0,.22);
-  font: 15px system-ui, sans-serif;
+  font: calc(15px * var(--sc, 1)) system-ui, sans-serif;
 }
 .b-note:hover { z-index: 2; }
 .b-note .q-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.b-note .q-answer { margin-top: 4px; font-size: 13px; }
+.b-note .q-answer { margin-top: 4px; font-size: .87em; }
+.b-replies { margin-top: .3em; border-top: 1px solid rgba(176,125,0,.35); padding-top: .2em; }
+.b-reply { font-size: .85em; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .15em; }
+.b-reply button { margin-left: 4px; font-size: 10px; padding: 0 5px; visibility: hidden; }
+.b-reply:hover button { visibility: visible; }
+#scalePop { position: fixed; z-index: 300; background: var(--panel, #fff); color: var(--text, #1b1b1b); border: 1px solid var(--line, #ccc); border-radius: 10px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); font: 13px system-ui, sans-serif; max-width: 300px; }
+#scalePop .row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+#scalePop input { width: 150px; }
+#scalePop button { font-size: 12px; padding: 1px 8px; }
 .b-note .q-act { display: flex; gap: 4px; margin-top: 5px; }
 .b-note .q-act button { font-size: 11px; padding: 1px 7px; }
 .b-note:not(:hover) .q-act { display: none; } /* Seen / Hide only when pointed at: the page stays clean */
 .b-note.bump { animation: notebump .8s ease-out 2; }
 @keyframes notebump { 0% { box-shadow: 0 0 0 0 rgba(224,160,0,.7); } 100% { box-shadow: 0 0 0 16px rgba(224,160,0,0); } }
-.b-chip { pointer-events: auto; cursor: default; user-select: none; background: #fff8d6; color: #1b1b1b; border: 1px solid #e0a000; border-radius: 12px; padding: 2px 9px; font: 12px system-ui, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.b-chip { pointer-events: auto; cursor: default; user-select: none; background: #fff8d6; color: #1b1b1b; border: 1px solid #e0a000; border-radius: 12px; padding: 2px 9px; font: calc(12px * var(--sc, 1)) system-ui, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
 .s-dot.k-post .s-dot-c { background: #e0a000; font-size: 14px; }
 .s-dot.k-post .s-dot-text { border-color: #e0a000; }
 #qWin .q-item.k-post { border-left-color: #e0a000; }

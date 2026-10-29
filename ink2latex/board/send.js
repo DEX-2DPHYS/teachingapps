@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-29.1201';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-29.1240';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -406,16 +406,22 @@ export function initSend(app) {
   // posts (2026-10-29): public, every student sees them; open notes on the board unless Settings →
   // "Show posts open" is off; a double-click on a post closes / opens it (q.shown, kept in the database,
   // the students follow it); a message board page shows them open whatever the setting
-  const kindOf = q => (q.kind === 'comment' || q.kind === 'post' ? q.kind : 'question');
-  const KIND_LABEL = { post: '📌 post', comment: '💬 comment', question: '❓ question' };
+  // replies: students write under each other's posts (kind 'reply', parent = the post), shown under it.
+  // scale: the size of a post, comment or question on the board (right-click → slider), also on the
+  // students' computers (not phones)
+  const kindOf = q => (['comment', 'post', 'reply'].includes(q.kind) ? q.kind : 'question');
+  const KIND_LABEL = { post: '📌 post', reply: '↩ reply', comment: '💬 comment', question: '❓ question' };
   const isOpen = q => q.status === 'open';
   const postOpen = (q, pg) => q.shown ?? (!!pg?.board || app.settings.autoShowPosts !== false);
+  const repliesOf = q => questions.filter(r => r.parent === q.id && kindOf(r) === 'reply' && r.status !== 'hidden');
+  const sc = q => (q.scale > 0 ? q.scale : 1);
 
   async function loadQuestions() {
     if (!S.user || !S.lecture) return;
     const c = await client();
     const q = cols => c.from('questions').select(cols).eq('lecture_id', S.lecture.id).order('created_at'); // hidden ones too (review)
-    let { data, error } = await q('id, page_no, text, kind, status, x, y, answer, shown, created_at');
+    let { data, error } = await q('id, page_no, text, kind, status, x, y, answer, shown, parent, scale, edited_at, created_at');
+    if (error) ({ data, error } = await q('id, page_no, text, kind, status, x, y, answer, shown, created_at')); // supabase-replies.sql not run yet
     if (error) ({ data, error } = await q('id, page_no, text, kind, status, x, y, answer, created_at')); // supabase-board.sql not run yet: no shown
     if (error) ({ data, error } = await q('id, page_no, text, status, created_at')); // setup not re-run yet: no kind, x, y, answer
     if (error) { console.warn('questions:', error.message); return; } // e.g. the questions table has not been set up yet
@@ -429,8 +435,10 @@ export function initSend(app) {
       qBtn.classList.remove('bump'); void qBtn.offsetWidth; qBtn.classList.add('bump');
       const x = fresh[fresh.length - 1];
       const pg = app.state.pages[app.state.cur];
-      const inView = x.page_no === app.sentIndex(app.state.cur) && !pg?.hidden && app.settings.showStudent !== false
-        && (kindOf(x) === 'post' ? postOpen(x, pg) || x.x != null : x.x != null);
+      const on = x.page_no === app.sentIndex(app.state.cur) && !pg?.hidden && app.settings.showStudent !== false;
+      const parent = kindOf(x) === 'reply' && questions.find(p => p.id === x.parent);
+      const inView = on && (kindOf(x) === 'post' ? postOpen(x, pg) || x.x != null
+        : kindOf(x) === 'reply' ? !!parent && parent.status !== 'hidden' && postOpen(parent, pg) : x.x != null);
       if (!inView) {
         app.toast?.(`New ${kindOf(x)} from a student (page ${x.page_no + 1}): ${x.text.slice(0, 80)}`);
       }
@@ -464,7 +472,7 @@ export function initSend(app) {
       w.querySelector('.q-count').textContent = `${questions.length} in this lecture${questions.length - list.length ? `, ${questions.length - list.length} hidden` : ''}`;
       w.querySelector('.q-list').innerHTML = list.length ? list.map(q => `
         <div class="q-item k-${kindOf(q)} st-${q.status}">
-          <div class="q-meta">${KIND_LABEL[kindOf(q)]} · page ${q.page_no + 1} · ${t(q.created_at)}${q.status === 'answered' ? ' · done' : q.status === 'hidden' ? ' · hidden' : ''}</div>
+          <div class="q-meta">${KIND_LABEL[kindOf(q)]}${kindOf(q) === 'reply' ? ` to “${esc((questions.find(p => p.id === q.parent)?.text || '').slice(0, 40))}”` : ''} · page ${q.page_no + 1} · ${t(q.created_at)}${q.status === 'answered' ? ' · done' : q.status === 'hidden' ? ' · hidden' : ''}</div>
           <div class="q-text">${esc(q.text)}</div>
           ${replyBox(q)}
           <div class="q-act">${actions(q, true)}</div>
@@ -475,6 +483,7 @@ export function initSend(app) {
     + (isOpen(q) ? `<button data-qa="answered" data-id="${q.id}">${kindOf(q) === 'question' ? '✓ Answered' : '✓ Seen'}</button>` : '')
     + (q.status === 'hidden' ? `<button data-qa="${q.answer ? 'answered' : 'open'}" data-id="${q.id}">Show again</button>`
       : kindOf(q) === 'post' ? `<button data-qa="hidden" data-id="${q.id}" title="Take this post away, for everyone (it is kept in the list: 'show hidden'). To only close it on the board: double-click it.">Remove</button>`
+      : kindOf(q) === 'reply' ? `<button data-qa="hidden" data-id="${q.id}" title="Take this reply away, for everyone (it is kept in the list: 'show hidden')">Remove</button>`
       : `<button data-qa="hidden" data-id="${q.id}" title="Take it off the board and out of the list (it is kept: 'show hidden')">Hide</button>`);
 
   // a written reply, e.g. for a question asked outside the lecture; the student sees it under their question
@@ -526,6 +535,14 @@ export function initSend(app) {
         expanded = expanded === d.dataset.id ? null : d.dataset.id;
         renderDots();
       });
+      // right-click (or the pen's side button) on a post, comment or question: a size slider
+      dotsLayer.addEventListener('contextmenu', e => {
+        const p = e.target.closest('.b-note, .b-chip, .s-dot');
+        const q = p && questions.find(x => x.id === p.dataset.id);
+        if (!q) return;
+        e.preventDefault(); e.stopPropagation();
+        openScale(q, e.clientX, e.clientY);
+      });
     }
     dotsLayer.dataset.page = app.state.cur;
     const s = app.board.s, pg = app.state.pages[app.state.cur];
@@ -537,23 +554,59 @@ export function initSend(app) {
     const isPost = q => kindOf(q) === 'post';
     const isNote = q => isPost(q) && postOpen(q, pg);
     const placed = q => q.x != null && q.y != null;
-    const note = (q, style = '') => `<div class="b-note st-${q.status}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" title="Double-click to close it (for everyone)"${style}>
-        <div class="q-text">${esc(q.text)}</div>${q.answer ? `<div class="q-answer"><b>Your reply:</b> ${esc(q.answer)}</div>` : ''}
+    // replies under the post they answer (each with ✕ to remove it, when pointed at)
+    const replies = q => { const rs = repliesOf(q); return rs.length ? `<div class="b-replies">${rs.map(r => `<div class="b-reply" data-id="${r.id}">↳ ${esc(r.text)}${r.edited_at ? ' <span class="dim">(edited)</span>' : ''}<button data-qa="hidden" data-id="${r.id}" title="Remove this reply, for everyone">✕</button></div>`).join('')}</div>` : ''; };
+    const note = (q, style = '') => `<div class="b-note st-${q.status}${bump.has(q.id) || repliesOf(q).some(r => bump.has(r.id)) ? ' bump' : ''}" data-id="${q.id}" title="Double-click to close it (for everyone) · right-click: size"${style}>
+        <div class="q-text">${esc(q.text)}${q.edited_at ? ' <span class="dim">(edited)</span>' : ''}</div>${replies(q)}${q.answer ? `<div class="q-answer"><b>Your reply:</b> ${esc(q.answer)}</div>` : ''}
         <div class="q-act">${actions(q, false)}</div></div>`;
-    const chip = q => `<div class="b-chip" data-id="${q.id}" title="${esc(q.text)} (double-click to open it)">📌 ${esc(q.text.slice(0, 24))}${q.text.length > 24 ? '…' : ''}</div>`;
+    const chip = q => `<div class="b-chip" data-id="${q.id}" style="--sc:${sc(q)}" title="${esc(q.text)} (double-click to open it)">📌 ${esc(q.text.slice(0, 24))}${q.text.length > 24 ? '…' : ''}</div>`;
     const W = app.board.pageW * s, H = app.board.pageH * s;
     const loose = here.filter(q => isPost(q) && !placed(q));
     const icon = { post: '📌', comment: '💬', question: '?' };
     keepDrafts(() => {
       dotsLayer.innerHTML = here.filter(placed).map(q => isNote(q)
-        ? note(q, ` style="left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W - 270 ? '-100%' : '0'},${q.y * s > H - 120 ? '-100%' : '0'})"`)
+        ? note(q, ` style="--sc:${sc(q)};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W - 270 * sc(q) ? '-100%' : '0'},${q.y * s > H - 120 * sc(q) ? '-100%' : '0'})"`)
         : `
-        <div class="s-dot k-${kindOf(q)} st-${q.status}${q.x > app.board.pageW / 2 ? ' flip' : ''}${q.id === expanded ? ' expanded' : ''}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" style="left:${q.x * s}px;top:${q.y * s}px">
+        <div class="s-dot k-${kindOf(q)} st-${q.status}${q.x > app.board.pageW / 2 ? ' flip' : ''}${q.id === expanded ? ' expanded' : ''}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" style="--sc:${sc(q)};left:${q.x * s}px;top:${q.y * s}px">
           <button class="s-dot-c" title="${esc(q.text)}${isPost(q) ? ' (double-click to open it)' : ''}">${icon[kindOf(q)]}</button>
           <div class="s-dot-text"><div class="q-text">${esc(q.text)}</div>${replyBox(q)}<div class="q-act">${actions(q, false)}</div></div>
         </div>`).join('')
-        + (loose.length ? `<div class="b-col">${loose.map(q => (isNote(q) ? note(q) : chip(q))).join('')}</div>` : '');
+        + (loose.length ? `<div class="b-col">${loose.map(q => (isNote(q) ? note(q, ` style="--sc:${sc(q)}"`) : chip(q))).join('')}</div>` : '');
     });
+  }
+  // the size slider (right-click): changes the board at once, saved after a short pause
+  let scaleTimer = 0;
+  function openScale(q, x, y) {
+    $('#scalePop')?.remove();
+    const p = document.createElement('div');
+    p.id = 'scalePop';
+    const pct = v => Math.round(v * 100) + ' %';
+    p.innerHTML = `<div class="dim small">Size of this ${kindOf(q)} (also on the students' computers, not phones)</div>
+      <div class="row"><input type="range" min="0.5" max="3" step="0.05" value="${sc(q)}"> <span>${pct(sc(q))}</span> <button data-r title="Normal size">100 %</button></div>`;
+    document.body.appendChild(p);
+    p.style.left = Math.max(4, Math.min(x, innerWidth - p.offsetWidth - 4)) + 'px';
+    p.style.top = Math.max(4, Math.min(y, innerHeight - p.offsetHeight - 4)) + 'px';
+    const r = p.querySelector('input'), lab = p.querySelector('span');
+    const set = v => {
+      q.scale = v === 1 ? null : v;
+      r.value = v; lab.textContent = pct(v);
+      renderDots();
+      clearTimeout(scaleTimer);
+      scaleTimer = setTimeout(async () => {
+        const { error } = await (await client()).from('questions').update({ scale: q.scale }).eq('id', q.id);
+        if (error) app.toast?.('Size not saved: ' + error.message + (/scale|column/i.test(error.message) ? ' (run supabase-replies.sql)' : ''));
+      }, 400);
+    };
+    r.addEventListener('input', () => set(+r.value));
+    p.querySelector('[data-r]').addEventListener('click', () => set(1));
+    p.addEventListener('pointerdown', e => e.stopPropagation());
+    const close = e => {
+      if (e.type === 'keydown' ? e.key !== 'Escape' : p.contains(e.target)) return;
+      p.remove();
+      document.removeEventListener('pointerdown', close, true);
+      document.removeEventListener('keydown', close, true);
+    };
+    setTimeout(() => { document.addEventListener('pointerdown', close, true); document.addEventListener('keydown', close, true); });
   }
   async function setShown(q, on) {
     q.shown = on; // at once on this board; the database tells the students
