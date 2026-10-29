@@ -357,3 +357,25 @@ export function liveShape(r, pen0) {
   const k = nearest(L.poly), o = offset(L.poly[k]);
   return p => { const v = L.poly.slice(); v[k] = [p[0] + o[0], p[1] + o[1]]; return densify(v.concat([v[0]])); };
 }
+
+// Shape tools (rectangle, ellipse, rounded rectangle; 2026-10-29): the shape spanned by a drag from
+// `a` to `b` (page units). square: Shift held, a square / circle. Returns { type, pts }.
+export const SHAPE_TOOLS = ['rect', 'ellipse', 'roundrect'];
+export function dragShape(tool, a, b, square = false) {
+  let dx = b[0] - a[0], dy = b[1] - a[1];
+  if (square) { const m = Math.max(Math.abs(dx), Math.abs(dy)); dx = (Math.sign(dx) || 1) * m; dy = (Math.sign(dy) || 1) * m; }
+  const x0 = Math.min(a[0], a[0] + dx), y0 = Math.min(a[1], a[1] + dy), w = Math.abs(dx), h = Math.abs(dy);
+  if (tool === 'ellipse') {
+    const ell = { cx: x0 + w / 2, cy: y0 + h / 2, a: Math.max(w / 2, 0.5), b: Math.max(h / 2, 0.5), theta: 0 };
+    return { type: square ? 'circle' : 'ellipse', pts: ellipsePoints(ell) };
+  }
+  if (tool === 'roundrect') {
+    // corners: quarter circles, radius a fifth of the shorter side (at most 60 page units)
+    const r = Math.min(60, Math.min(w, h) / 5), pts = [];
+    const arc = (cx, cy, a0) => { for (let i = 0; i <= 8; i++) { const t = a0 + (i / 8) * Math.PI / 2; pts.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } };
+    arc(x0 + w - r, y0 + r, -Math.PI / 2); arc(x0 + w - r, y0 + h - r, 0); arc(x0 + r, y0 + h - r, Math.PI / 2); arc(x0 + r, y0 + r, Math.PI);
+    pts.push(pts[0]);
+    return { type: 'roundrect', pts: densify(pts) };
+  }
+  return { type: 'rectangle', pts: densify([[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h], [x0, y0]]) };
+}

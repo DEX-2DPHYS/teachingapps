@@ -1,18 +1,18 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-29.1250';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-29.1250';
-import { straightenFigure, recognize } from './shapes.js?v=2026-10-29.1250';
-import { initSend } from './send.js?v=2026-10-29.1250';
-import { initStudent } from './student.js?v=2026-10-29.1250';
-import { initAssign } from './assign.js?v=2026-10-29.1250';
-import { initVoice } from './voice.js?v=2026-10-29.1250';
-import { EMBED, initEmbed } from './embed.js?v=2026-10-29.1250';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-29.1250';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-29.1250';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-29.1250';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-29.1250';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-29.1309';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-29.1309';
+import { straightenFigure, recognize, SHAPE_TOOLS } from './shapes.js?v=2026-10-29.1309';
+import { initSend } from './send.js?v=2026-10-29.1309';
+import { initStudent } from './student.js?v=2026-10-29.1309';
+import { initAssign } from './assign.js?v=2026-10-29.1309';
+import { initVoice } from './voice.js?v=2026-10-29.1309';
+import { EMBED, initEmbed } from './embed.js?v=2026-10-29.1309';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-29.1309';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-29.1309';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-29.1309';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-29.1309';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -844,11 +844,15 @@ const fullscreen = initFullscreen({
 applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the keys still work)'); },
   tools: [
     { icon: '✎', tip: 'Pen (P)', run: () => setTool('pen'), on: () => board.tool === 'pen' },
-    { icon: '🔴', tip: 'Laser pointer (P or Shift)', run: () => setTool('laser'), on: () => board.tool === 'laser' },
+    { icon: '🔴', tip: 'Laser pointer (L, or Shift switches pen / laser)', run: () => setTool('laser'), on: () => board.tool === 'laser' },
     { icon: '⌫', tip: 'Eraser: E erases whole strokes, X only what it touches; press again to switch', run: () => (board.tool === 'eraser' ? setEraser(!board.partialErase) : setTool('eraser')), on: () => board.tool === 'eraser' },
     { icon: '◌', tip: 'Select (S)', run: () => setTool('lasso'), on: () => board.tool === 'lasso' },
     { icon: 'T', tip: 'Text (T)', run: () => setTool('text'), on: () => board.tool === 'text' },
     { icon: '🪣', tip: 'Paint bucket (F): tap inside a closed shape to fill it with the pen colour', run: () => setTool('fill'), on: () => board.tool === 'fill' },
+    // shape tools: drag corner to corner, Shift = square / circle; on until another tool is chosen
+    { icon: '▭', tip: 'Rectangle: drag from corner to corner (Shift: square). Stays on until you choose another tool', run: () => setTool('rect'), on: () => board.tool === 'rect' },
+    { icon: '◯', tip: 'Circle / oval: drag across it (Shift: circle). Stays on until you choose another tool', run: () => setTool('ellipse'), on: () => board.tool === 'ellipse' },
+    { icon: '▢', tip: 'Rounded rectangle: drag from corner to corner (Shift: square). Stays on until you choose another tool', run: () => setTool('roundrect'), on: () => board.tool === 'roundrect' },
     { icon: '🎨', tip: 'Pen colour, see-through, dashed, width (or hold C)', run: () => openPenPop('style') },
     null,
     { icon: '↶', tip: 'Undo (Ctrl+Z)', run: () => board.undo() },
@@ -1584,7 +1588,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-29.1250');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-29.1309');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -3548,7 +3552,7 @@ function pencilCursor(color) {
 function applyCursor() {
   const pal = THEMES[settings.board].palette;
   const t = board.tool;
-  board.baseCursor = t === 'lasso' ? 'cell' : t === 'fill' ? 'crosshair' : t === 'pen' ? pencilCursor(pal[board.color] || pal.auto) : 'none';
+  board.baseCursor = t === 'lasso' ? 'cell' : t === 'fill' || SHAPE_TOOLS.includes(t) ? 'crosshair' : t === 'pen' ? pencilCursor(pal[board.color] || pal.auto) : 'none';
   // while the pen touches the screen Windows hides the pointer: the board draws this pencil itself
   const img = new Image();
   img.src = board.baseCursor.startsWith('url') ? board.baseCursor.match(/url\("(.*?)"\)/)[1] : '';
@@ -3556,7 +3560,7 @@ function applyCursor() {
   $('#board').style.cursor = board.baseCursor;
   board.requestLive();
 }
-// P, or Shift pressed and released on its own: switch between pen and laser (not while typing)
+// Shift pressed and released on its own: switch between pen and laser (not while typing); P = pen, L = laser
 const togglePenLaser = () => setTool(board.tool === 'pen' ? 'laser' : 'pen');
 {
   let shiftAlone = false;
@@ -3564,6 +3568,7 @@ const togglePenLaser = () => setTool(board.tool === 'pen' ? 'laser' : 'pen');
   document.addEventListener('keydown', e => { shiftAlone = e.key === 'Shift' && !e.repeat && !typing(e) && !e.ctrlKey && !e.altKey && !e.metaKey; });
   document.addEventListener('keyup', e => { if (e.key === 'Shift' && shiftAlone && !typing(e)) togglePenLaser(); shiftAlone = false; });
   document.addEventListener('pointerdown', () => { shiftAlone = false; }, true); // Shift + click is not a switch
+  document.addEventListener('pointermove', e => { if (e.buttons) shiftAlone = false; }, true); // nor Shift during a drag (square / circle)
 }
 document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => {
   // the Eraser button pressed again switches between whole strokes and only what it touches
@@ -3625,7 +3630,7 @@ function applyPenStyle(st) {
   board.dash = !!st.dash;
   sizeEl.value = st.size; applySize();
   document.querySelectorAll('.swatch').forEach(x => x.classList.toggle('active', x.dataset.color === st.color));
-  if (board.tool !== 'pen') setTool('pen'); else applyCursor();
+  if (board.tool !== 'pen' && !SHAPE_TOOLS.includes(board.tool)) setTool('pen'); else applyCursor(); // a shape tool stays on
 }
 // a short curve drawn in a pen style, on the board's own colour so the ink looks as it will
 function penSample(st, w = 132, h = 26) {
@@ -3757,7 +3762,7 @@ document.addEventListener('pointerdown', e => {
 
 // K: every keyboard shortcut, as a splash; K again, Esc or a click closes it
 const SHORTCUTS = [
-  ['Writing', [['P', 'Pen / laser pointer (or Shift pressed alone)'], ['E', 'Eraser: whole strokes'], ['X', 'Eraser: only what it touches (fix part of a line)'], ['T', 'Text box'], ['S or G', 'Select (lasso)'],
+  ['Writing', [['P', 'Pen'], ['L', 'Laser pointer (Shift pressed alone switches pen / laser)'], ['E', 'Eraser: whole strokes'], ['X', 'Eraser: only what it touches (fix part of a line)'], ['T', 'Text box'], ['S or G', 'Select (lasso)'],
     ['C (hold)', 'Pen palette: 8 colours, see-through, dashed, 3 widths. Let go to write on'],
     ['S (hold)', 'Store the current pen in one of 5 slots'], ['R (hold)', 'Recall one of the 5 stored pens'], ['1-5', 'Switch to stored pen 1-5 (or pick a slot while a palette is open)']]],
   ['Page', [['Space (hold)', 'Preview: the transcriptions in place of the ink'], ['B', 'Region boxes: all / current / off'],
@@ -4267,7 +4272,8 @@ document.addEventListener('keydown', e => {
     if (e.shiftKey) { if (g) ungroup(g); else toast('Select a whole group first (click it once in Select mode)'); }
     else if (st.length) groupStrokes(st);
   }
-  else if (!e.ctrlKey && !e.metaKey && k === 'p') togglePenLaser();
+  else if (!e.ctrlKey && !e.metaKey && k === 'p') setTool('pen'); // P: pen, L: laser (Shift alone still switches)
+  else if (!e.ctrlKey && !e.metaKey && !e.altKey && k === 'l') setTool('laser');
   else if (!e.ctrlKey && !e.metaKey && k === 'e') { if (board.tool === 'eraser' && !board.partialErase) setTool('pen'); else setEraser(false); } // E: whole strokes
   else if (!e.ctrlKey && !e.metaKey && k === 'x') { if (board.tool === 'eraser' && board.partialErase) setTool('pen'); else setEraser(true); } // X: only what it touches
   else if (!e.ctrlKey && !e.metaKey && (k === 's' || k === 'g')) setTool('lasso');
@@ -4409,7 +4415,7 @@ const voice = initVoice({
 // (c- = Ctrl, s- = Shift); hovering says what it does; a click does what the key does; Ctrl+K again
 // takes it away. Only keys are in it: the buttons of the tool bar are not.
 const SHORTCUT_BAR = [
-  ['P', 'Pen / laser pointer'], ['E', 'Eraser: whole strokes'], ['X', 'Eraser: only what it touches'], ['T', 'Text box'], ['S', 'Select (hold S: store the pen)'],
+  ['P', 'Pen'], ['L', 'Laser pointer'], ['E', 'Eraser: whole strokes'], ['X', 'Eraser: only what it touches'], ['T', 'Text box'], ['S', 'Select (hold S: store the pen)'],
   ['F', 'Paint bucket'], null,
   ['C', 'Pen palette: colour, see-through, dashed, width'], ['R', 'Recall a stored pen'], ['1', 'Stored pen 1'], ['2', 'Stored pen 2'], ['3', 'Stored pen 3'], ['4', 'Stored pen 4'], ['5', 'Stored pen 5'], null,
   ['Z', 'Zoom to an area (drag a frame); Z or Esc zooms back'], ['V', 'Voice input: speak to write or correct'], ['B', 'Region boxes: all / current / off'], ['I', 'Use the HTML on this page / write on it'],

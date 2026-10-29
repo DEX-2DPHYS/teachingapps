@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize, liveShape } from './shapes.js?v=2026-10-29.1250';
+import { recognize, liveShape, SHAPE_TOOLS, dragShape } from './shapes.js?v=2026-10-29.1309';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -339,6 +339,11 @@ export class Board {
   }
 
   resize() {
+    // the whole page on the screen (full screen slide show, zoom ≤ 1): nothing to scroll, so no
+    // scrollbars. A text box or selection frame a few pixels past the page edge made a scrollbar come
+    // and go (it takes height: the page shrank, the overflow went, the page grew ...): an endless resize
+    // loop that kept clearing the page, a black screen on a 16:9 monitor (2026-10-29)
+    this.wrap.style.overflow = this.fitMode === 'page' && this.zoom <= 1 ? 'hidden' : '';
     let fit = Math.max(200, this.wrap.clientWidth - 24) / this.pageW;
     if (this.fitMode === 'page') {
       const cs = getComputedStyle(this.wrap);
@@ -352,8 +357,9 @@ export class Board {
     this.sheet.style.width = w + 'px';
     this.sheet.style.height = h + 'px';
     for (const c of [this.canvas, this.live]) {
-      c.width = Math.round(w * dpr);
-      c.height = Math.round(h * dpr);
+      // setting a canvas size clears it, even to the same size: only when it changes
+      if (c.width !== Math.round(w * dpr)) c.width = Math.round(w * dpr);
+      if (c.height !== Math.round(h * dpr)) c.height = Math.round(h * dpr);
       c.style.width = w + 'px';
       c.style.height = h + 'px';
     }
@@ -467,6 +473,14 @@ export class Board {
         partial: this.tool === 'eraser' ? this.partialErase : this.eraseEnd === 'part' };
       this.canvas.style.cursor = 'none'; // the tinted circle shows where it erases (also Ctrl / eraser end)
       this.eraseAt(p);
+    } else if (SHAPE_TOOLS.includes(this.tool)) {
+      // shape tools: drag from corner to corner (Shift: square / circle); the tool stays on after it
+      const a = this.active = { id: e.pointerId, t0: performance.now(), shapeDrag: true, square: e.shiftKey,
+        stroke: { id: ++this.seq, pts: [p, p], size: this.size, color: this.color, pen: e.pointerType === 'pen', shape: 'rectangle',
+          ...(this.alpha < 1 ? { alpha: this.alpha } : {}), ...(this.dash ? { dash: true } : {}) } };
+      const tool = this.tool;
+      a.live = q => { const r = dragShape(tool, p, q, a.square); a.stroke.shape = r.type; return r.pts; };
+      a.stroke.pts = a.live(p);
     } else {
       this.active = { id: e.pointerId, t0: performance.now(), stroke: { id: ++this.seq, pts: [p], size: this.size, color: this.color, pen: e.pointerType === 'pen', shape: null,
         ...(this.alpha < 1 ? { alpha: this.alpha } : {}), ...(this.dash ? { dash: true } : {}) } };
@@ -493,6 +507,7 @@ export class Board {
       return;
     }
     if (a.mode) { this.dragSelection(this.point(e)); return; }
+    if (a.shapeDrag) a.square = e.shiftKey;
     if (a.laser) { const now = performance.now(); for (const ev of (e.getCoalescedEvents?.() || [e])) { const p = this.point(ev); a.laser.push([p[0], p[1], now]); } this.requestLive(); return; }
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     const st = this.stats; // for the diagnostics panel (Ctrl+Shift+D)
@@ -552,6 +567,12 @@ export class Board {
     } else if (a.eraser) {
       if (a.added.length) this.push({ type: 'replace', removed: a.removed, added: a.added }, 'erase');
       else if (a.removed.length) this.push({ type: 'remove', strokes: a.removed }, 'erase');
+    } else if (a.shapeDrag) {
+      // a shape: kept unless it is hardly bigger than a click
+      const st = a.stroke, b = strokeBox(st);
+      if (Math.max(b.x1 - b.x0, b.y1 - b.y0) * this.s < 6) { this.requestLive(); return; }
+      this.page.strokes.push(st);
+      this.push({ type: 'add', strokes: [st] }, 'add');
     } else {
       const st = a.stroke;
       // a tap: very short in time and space. Two taps on the same spot = double tap (no dots are kept).
