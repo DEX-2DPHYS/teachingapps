@@ -63,16 +63,34 @@ body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor:
 #sheet { touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; }
 #pageWrap { touch-action: pan-x pan-y; }
 
-/* View menu */
-#viewWrap { position: relative; }
-#viewMenu {
+/* View menu, Comments menu */
+#viewWrap, #cmtWrap { position: relative; }
+#viewMenu, #cmtMenu {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 170px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px;
   box-shadow: 0 6px 20px rgba(0,0,0,.2);
 }
-#viewMenu label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
-#viewMenu label:hover { background: var(--btn-hover); }
-#viewMenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+#viewMenu label, #cmtMenu label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+#viewMenu label:hover, #cmtMenu label:hover { background: var(--btn-hover); }
+#viewMenu hr, #cmtMenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+#cmtMenu .tip { font-size: 11px; color: var(--dim); padding: 4px 8px 0; max-width: 220px; }
+#cmtBtn.off { text-decoration: line-through; color: var(--dim); }
+
+/* hold / right-click menu */
+#ctxMenu { position: fixed; z-index: 35; min-width: 180px; display: flex; flex-direction: column; padding: 4px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.28); }
+#ctxMenu button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 6px; white-space: nowrap; }
+#ctxMenu button:hover { background: var(--btn-hover); }
+#ctxMenu hr { border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
+#ctxMenu .what { font-size: 11px; color: var(--dim); padding: 4px 10px 2px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* moving: held (lifted), dragged, or "tap where it should go" */
+#pins .lifted, #pins .dragging { z-index: 5 !important; box-shadow: 0 10px 26px rgba(0,0,0,.4); outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+#pins .pin.lifted, #pins .pin.dragging { outline: 0; box-shadow: none; }
+#pins .pin.lifted .pin-dot, #pins .pin.dragging .pin-dot { outline: 3px solid var(--accent); outline-offset: 2px; }
+#pins .dragging { opacity: .9; cursor: grabbing; }
+body.placing #sheet, body.placing #pins .b-note, body.placing #pins .pin { cursor: crosshair; }
+#pins .placing-item { outline: 2px dashed var(--accent); outline-offset: 3px; }
 
 /* placed notes and questions */
 #pins { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
@@ -88,7 +106,7 @@ body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor:
 .pin.answered .pin-dot { opacity: .55; }
 .pin-text {
   display: none; position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
-  width: max-content; max-width: 240px; padding: 6px 9px; border-radius: 8px; font-size: 14px;
+  width: max-content; max-width: min(240px, 70vw); padding: 6px 9px; border-radius: 8px; font-size: 14px;
   background: #fffbe0; color: #1d1d1f; border: 1px solid #d6b400; box-shadow: 0 4px 14px rgba(0,0,0,.2);
 }
 .pin.question .pin-text { background: #fff; border-color: #d32f2f; }
@@ -113,6 +131,20 @@ body.note-mode #notes { pointer-events: auto; touch-action: pan-x pan-y; cursor:
 #postForm { position: fixed; z-index: 30; width: min(360px, calc(100vw - 8px)); display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.28); }
 #postText { font: inherit; color: var(--text); background: var(--btn); border: 1px solid #e0a000; border-radius: 6px; padding: 6px 8px; resize: vertical; }
 #postForm .place-act button:first-child { margin-right: auto; }
+#postForm .kinds button:first-child { margin-right: 0; }
+#postForm .kinds button:not(.sel) { background: var(--btn); color: var(--text); border-color: var(--line); font-weight: 400; }
+#postForm .kinds button:disabled { opacity: .4; }
+.pin-text .pin-edit { display: inline-block; margin-top: 4px; padding: 1px 8px; font-size: 12px; }
+
+/* phones: the notes fit the small page (smaller, at most about half the page wide, three lines until
+   tapped open; the lecturer's size is not used) */
+body.phone .b-note { min-width: 0; max-width: min(calc(220px * var(--sc, 1)), 46%); padding: .3em .5em; border-width: 1.5px; }
+body.phone .b-col { max-width: 46%; }
+body.phone .b-col .b-note { max-width: 100%; }
+body.phone .b-note:not(.open) .b-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+body.phone .b-note:not(.open) .b-replies, body.phone .b-note:not(.open) .reply, body.phone .b-note:not(.open) .st { display: none; }
+body.phone .b-note:not(.open).more::after { content: '⋯ tap'; display: block; font-size: 10px; color: #6b6b70; }
+body.phone .pin-text { font-size: 13px; padding: 5px 7px; }
 .b-col { position: absolute; left: 6px; top: 34px; bottom: 6px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; overflow-y: auto; pointer-events: none; }
 .b-col .b-note { position: relative; }
 #boardHint { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); z-index: 9; background: #b07d00; color: #fff; font-size: 13px; border-radius: 6px; padding: 3px 10px; pointer-events: none; max-width: calc(100% - 12px); text-align: center;  transition: opacity .8s; }

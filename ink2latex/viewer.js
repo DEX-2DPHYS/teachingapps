@@ -2,11 +2,11 @@
 // AI transcription. Standalone (libraries from the CDN), so this folder can be hosted anywhere static.
 // Students sign in anonymously; row level security only lets them read lectures they joined.
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-29.1309';
-import { TextLayer } from './textboxes.js?v=2026-10-29.1309';
-import { drawImages } from './figures.js?v=2026-10-29.1309';
-import { initFullscreen } from './fullscreen.js?v=2026-10-29.1309';
-import { paneLayer } from './panes.js?v=2026-10-29.1309';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, LIBS } from './config.js?v=2026-10-30.0954';
+import { TextLayer } from './textboxes.js?v=2026-10-30.0954';
+import { drawImages } from './figures.js?v=2026-10-30.0954';
+import { initFullscreen } from './fullscreen.js?v=2026-10-30.0954';
+import { paneLayer } from './panes.js?v=2026-10-30.0954';
 
 const $ = s => document.querySelector(s);
 const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -74,7 +74,7 @@ function leave() {
   clearInterval(pollTimer);
   LS.del('ink2latex.viewer');
   lecture = null; row = null; cache.clear(); notes.clear(); typed.clear(); boxes.clear(); setTextMode(false);
-  setNoteMode(false);
+  setNoteMode(false); closePostForm(); hideCtx(); stopPlacing();
   history.replaceState(null, '', location.pathname);
   show('join');
 }
@@ -117,7 +117,7 @@ async function fetchPage(no) {
 const nearestPage = no => (pages.some(p => p.page_no === no) ? no : pages.length ? pages[pages.length - 1].page_no : 0);
 
 async function showPage(no) {
-  if (no !== cur) closePlace();
+  if (no !== cur) { closePlace(); closePostForm(); hideCtx(); stopPlacing(); }
   cur = no;
   updateNav();
   // a page fetched earlier is used only if it is still the version the lecturer last sent
@@ -539,7 +539,15 @@ async function saveNotes(no) {
 }
 
 const nc = $('#notes');
-$('#pageWrap').addEventListener('contextmenu', e => { if (!e.target.closest('.tx-box.editing')) e.preventDefault(); });
+// right-click (or the pen's side button): the menu (edit, move, reply, show all). A long press of a finger
+// or the pen also sends contextmenu on some devices: the hold (below) handles those.
+$('#pageWrap').addEventListener('contextmenu', e => {
+  if (e.target.closest('.tx-box.editing')) return;
+  e.preventDefault();
+  if (noteMode || textMode || view === 'doc' || (lastDown.type !== 'mouse' && lastDown.button !== 2)) return;
+  const el = e.target.closest('#pins .b-reply, #pins .b-note, #pins .pin');
+  openCtx(e.clientX, e.clientY, itemOf(el));
+});
 nc.addEventListener('pointerdown', e => {
   dbg('down', e);
   if (e.pointerType === 'pen') penSeen = true;
@@ -671,7 +679,7 @@ async function loadTyped(no) {
   if (!lecture) return;
   const qsel = cols => sb.from('questions').select(cols).eq('lecture_id', lecture.id).eq('page_no', no).order('created_at');
   const [n, q0] = await Promise.all([
-    sb.from('student_notes').select('text, x, y, updated_at').eq('lecture_id', lecture.id).eq('page_no', no).eq('kind', 'text').order('updated_at'),
+    sb.from('student_notes').select('id, text, x, y, updated_at').eq('lecture_id', lecture.id).eq('page_no', no).eq('kind', 'text').order('updated_at'),
     qsel('id, text, kind, status, x, y, answer, shown, parent, scale, edited_at, created_at, student'),
   ]);
   // before the setup is re-run, questions have no kind, x, y, answer (shown: supabase-board.sql; parent,
@@ -698,9 +706,12 @@ const KIND = {
 };
 const kindOf = q => (['comment', 'post', 'reply'].includes(q.kind) ? q.kind : 'question');
 const PHONE = Math.min(screen.width, screen.height) < 600;
-// one size for all of them, chosen by the lecturer (lectures.note_scale); phones keep the normal size
+document.body.classList.toggle('phone', PHONE);
+// one size for all of them, chosen by the lecturer (lectures.note_scale). Phones do not use it: there the
+// notes shrink with the small page (0.7 at the page's normal fit, the normal size once zoomed in), are
+// at most about half the page wide and show three lines until tapped open (viewer.css body.phone)
 let noteScale = 1;
-const scOf = () => (!PHONE && noteScale > 0 ? noteScale : 1);
+const scOf = () => (PHONE ? Math.max(0.7, Math.min(1, 2 * geo.s)) : noteScale > 0 ? noteScale : 1);
 function setNoteScale(v) {
   v = v > 0 ? v : 1;
   if (v === noteScale) return;
@@ -718,32 +729,38 @@ async function lectureRow() {
 function renderPins() {
   const box = $('#pins');
   if (!box) return;
+  if (hold?.dragging) { pinsPending = true; return; } // one is being dragged: drawn again when it is dropped
   const t = typed.get(cur) || { notes: [], questions: [], posts: [] };
   const placed = x => x.x != null && x.y != null;
   const status = { open: 'sent to the lecturer', answered: 'answered', hidden: 'seen by the lecturer' };
   const yours = q => q.student === me;
+  const all = $('#openAll').checked;
   // everyone's posts: open notes (the ones typed in the side panel in a column at the left), or a pin
   // when the lecturer closed it
-  const posts = t.posts || [];
+  const posts = $('#showPosts').checked ? t.posts || [] : [];
   const open = posts.filter(q => q.shown !== false);
-  const closed = posts.filter(q => q.shown === false && placed(q)).map(q => ({ ...q, k: 'post', tag: (yours(q) ? 'your post' : 'post') + ' · closed by the lecturer' }));
+  const closed = posts.filter(q => q.shown === false && placed(q)).map(q => ({ ...q, k: 'post', own: yours(q), tag: (yours(q) ? 'your post' : 'post') + ' · closed by the lecturer' }));
   const list = [
-    ...($('#showNotes').checked ? t.notes.filter(placed).map(n => ({ ...n, k: 'note', tag: 'private note' })) : []),
-    ...($('#showQuestions').checked ? t.questions.filter(q => placed(q) && !['post', 'reply'].includes(kindOf(q))).map(q => ({ ...q, k: kindOf(q), tag: status[q.status] || q.status })) : []),
+    ...($('#showNotes').checked ? t.notes.filter(placed).map(n => ({ ...n, k: 'note', own: true, tag: 'private note' })) : []),
+    ...($('#showQuestions').checked ? t.questions.filter(q => placed(q) && !['post', 'reply'].includes(kindOf(q))).map(q => ({ ...q, k: kindOf(q), own: true, tag: status[q.status] || q.status })) : []),
     ...closed,
   ];
   // a post with the replies under it; tap your own (post or reply) to edit it, another's to reply
   const edited = q => (q.edited_at ? ' <span class="st inline">(edited)</span>' : '');
-  const replies = q => { const rs = (t.replies || []).filter(r => r.parent === q.id); return rs.length ? `<div class="b-replies">${rs.map(r => `<div class="b-reply${yours(r) ? ' own' : ''}" data-id="${r.id}">↳ ${renderMixed(r.text)}${edited(r)}</div>`).join('')}</div>` : ''; };
-  const note = (q, style = '') => `<div class="b-note${yours(q) ? ' own' : ''}" data-id="${q.id}" title="${yours(q) ? 'Tap to edit your post' : 'Tap to reply'}"${style}>${renderMixed(q.text)}${edited(q)}${yours(q) ? '<span class="st">yours · tap to edit</span>' : ''}${replies(q)}${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`;
+  const repliesOf = q => (t.replies || []).filter(r => r.parent === q.id);
+  const replies = q => { const rs = repliesOf(q); return rs.length ? `<div class="b-replies">${rs.map(r => `<div class="b-reply${yours(r) ? ' own' : ''}" data-id="${r.id}">↳ ${renderMixed(r.text)}${edited(r)}</div>`).join('')}</div>` : ''; };
+  // on a phone: three lines until tapped open ("more" when something is cut off: text, replies, ...)
+  const more = q => PHONE && (repliesOf(q).length || q.answer || yours(q) || q.text.length > 60);
+  const note = (q, style = '') => `<div class="b-note${yours(q) ? ' own' : ''}${all || openNotes.has(q.id) ? ' open' : ''}${more(q) ? ' more' : ''}" data-id="${q.id}" title="${yours(q) ? 'Tap to edit your post · drag (or hold) to move it' : 'Tap to reply'}"${style}><div class="b-text">${renderMixed(q.text)}${edited(q)}</div>${yours(q) ? '<span class="st">yours · tap to edit, hold to move</span>' : ''}${replies(q)}${q.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(q.answer)}</div>` : ''}</div>`;
   const loose = open.filter(q => !placed(q));
   const { s, W, H } = geo;
   box.hidden = view === 'doc';
   box.innerHTML = open.filter(placed).map(q => note(q, ` style="--sc:${scOf()};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W * s - 250 * scOf() ? '-100%' : '0'},${q.y * s > H * s - 100 * scOf() ? '-100%' : '0'})"`)).join('')
     + (loose.length ? `<div class="b-col">${loose.map(q => note(q, ` style="--sc:${scOf()}"`)).join('')}</div>` : '')
-    + list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}" style="--sc:${p.k === 'note' ? 1 : scOf()};left:${p.x * geo.s}px;top:${p.y * geo.s}px">
+    + list.map(p => `<div class="pin ${p.k}${p.status === 'answered' ? ' answered' : ''}${all || openPin === p.id ? ' expanded' : ''}" data-id="${p.id}" data-k="${p.k}" style="--sc:${p.k === 'note' ? 1 : scOf()};left:${p.x * geo.s}px;top:${p.y * geo.s}px">
       <button class="pin-dot" title="${esc(p.text)}">${KIND[p.k].icon}</button>
-      <div class="pin-text">${renderMixed(p.text)}<span class="st">${esc(p.tag)}</span>${p.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(p.answer)}</div>` : ''}</div></div>`).join('');
+      <div class="pin-text">${renderMixed(p.text)}${edited(p)}<span class="st">${esc(p.tag)}</span>${p.answer ? `<div class="reply"><b>Lecturer:</b> ${renderMixed(p.answer)}</div>` : ''}${p.own ? `<button class="pin-edit" data-edit title="Edit it${p.k === 'note' ? '' : ', or make it a comment, question or post'} · drag (or hold) the dot to move it">✏️ Edit</button>` : ''}</div></div>`).join('');
+  if (placing) box.querySelector(`[data-id="${placing.id}"]`)?.classList.add('placing-item');
   const hint = $('#boardHint');
   if (hint) {
     hint.hidden = !isBoardPage() || view === 'doc';
@@ -753,15 +770,29 @@ function renderPins() {
 }
 let hintPage = null, hintTimer = 0;
 const isBoardPage = () => !!row?.board && row.page_no === cur;
+const openNotes = new Set(); // phone: posts tapped open (all lines, replies)
+let openPin = null;          // the pin whose text is open
 $('#pins').addEventListener('click', e => {
+  if (performance.now() < suppressUntil || placing) { e.stopPropagation(); return; } // the end of a hold, drag or move
+  const ed = e.target.closest('[data-edit]');
+  if (ed) { e.stopPropagation(); const it = itemOf(ed.closest('.pin')); if (it) openEdit(it, e.clientX, e.clientY); return; }
   const n = e.target.closest('.b-reply, .b-note');
-  if (n) { e.stopPropagation(); openPostForm(n.dataset.id, e.clientX, e.clientY); return; }
+  if (n) {
+    e.stopPropagation();
+    // a phone shows a post shortened: the first tap opens it, the next one replies / edits
+    const b = e.target.closest('.b-note');
+    if (b && b.classList.contains('more') && !b.classList.contains('open')) { openNotes.add(b.dataset.id); b.classList.add('open'); return; }
+    openPostForm(n.dataset.id, e.clientX, e.clientY);
+    return;
+  }
   const pin = e.target.closest('.pin');
   if (!pin) return;
   e.stopPropagation();
+  if ($('#openAll').checked) return; // all open anyway
   const was = pin.classList.contains('expanded');
   for (const p of $('#pins').querySelectorAll('.pin.expanded')) p.classList.remove('expanded');
   pin.classList.toggle('expanded', !was);
+  openPin = was ? null : pin.dataset.id;
 });
 
 // save a note (private), comment or question (to the lecturer, anonymous); x, y = where on the page, or null
@@ -782,25 +813,62 @@ async function addMine(text, kind, x = null, y = null) {
   await loadTyped(cur);
 }
 // tapping a post or a reply: your own → edit it; another's → reply under the post (everyone sees it)
-let postTarget = null; // { id, edit } while the form is open
-function openPostForm(id, clientX, clientY) {
+let postTarget = null; // { id, edit, src, kind, newKind } while the form is open
+function itemById(id, k) {
   const t = typed.get(cur) || {};
-  const q = [...(t.posts || []), ...(t.replies || [])].find(x => x.id === id);
-  if (!q) return;
-  const edit = q.student === me;
-  const post = kindOf(q) === 'reply' ? (t.posts || []).find(p => p.id === q.parent) : q;
-  if (!post) return;
-  postTarget = { id: edit ? q.id : post.id, edit, page: cur };
-  const f = $('#postForm');
-  f.hidden = false;
-  $('#postWhat').textContent = edit ? `Edit your ${kindOf(q)}` : `Reply to: “${post.text.slice(0, 60)}${post.text.length > 60 ? '…' : ''}” (everyone sees it, anonymous)`;
-  $('#postText').value = edit ? q.text : '';
-  $('#postSend').textContent = edit ? '💾 Save' : '↩ Reply';
+  if (k === 'note') { const n = (t.notes || []).find(x => x.id === id); return n ? { id, src: 'note', kind: 'note', own: true, q: n } : null; }
+  const q = [...(t.questions || []), ...(t.posts || []), ...(t.replies || [])].find(x => x.id === id);
+  return q ? { id, src: 'q', kind: kindOf(q), own: !q.student || q.student === me, q } : null;
+}
+const itemOf = el => (el ? itemById(el.dataset.id, el.dataset.k) : null);
+function placeForm(f, clientX, clientY) {
   const w = f.offsetWidth, h = f.offsetHeight;
   f.style.left = Math.max(4, Math.min(clientX - 10, innerWidth - w - 4)) + 'px';
   f.style.top = Math.max(4, Math.min(clientY - 10, innerHeight - h - 4)) + 'px';
+}
+function openPostForm(id, clientX, clientY) {
+  const it = itemById(id);
+  if (!it) return;
+  if (it.own) { openEdit(it, clientX, clientY); return; }
+  const t = typed.get(cur) || {};
+  const post = it.kind === 'reply' ? (t.posts || []).find(p => p.id === it.q.parent) : it.kind === 'post' ? it.q : null;
+  if (!post) return;
+  postTarget = { id: post.id, edit: false, page: cur };
+  const f = $('#postForm');
+  f.hidden = false;
+  $('#postWhat').textContent = `Reply to: “${post.text.slice(0, 60)}${post.text.length > 60 ? '…' : ''}” (everyone sees it, anonymous)`;
+  $('#postText').value = '';
+  $('#postSend').textContent = '↩ Reply';
+  $('#postKinds').hidden = true; $('#postKindNote').textContent = '';
+  placeForm(f, clientX, clientY);
   $('#postText').focus();
 }
+// your own: the text, and for a comment, question or post also the type (a post with replies stays a post)
+const SWITCH = ['comment', 'question', 'post'];
+function openEdit(it, clientX, clientY) {
+  if (!it?.own) return;
+  const locked = it.kind === 'post' && (typed.get(cur)?.replies || []).some(r => r.parent === it.id);
+  postTarget = { id: it.id, edit: true, page: cur, src: it.src, kind: it.kind, newKind: it.kind, locked };
+  const f = $('#postForm');
+  f.hidden = false;
+  $('#postWhat').textContent = `Edit your ${it.kind === 'note' ? 'private note' : it.kind}`;
+  $('#postText').value = it.q.text;
+  $('#postSend').textContent = '💾 Save';
+  $('#postKinds').hidden = !SWITCH.includes(it.kind);
+  for (const b of $('#postKinds').querySelectorAll('[data-k]')) b.disabled = locked && b.dataset.k !== 'post';
+  setEditKind(it.kind);
+  placeForm(f, clientX, clientY);
+  $('#postText').focus();
+}
+function setEditKind(k) {
+  const tg = postTarget;
+  if (!tg?.edit) return;
+  tg.newKind = k;
+  for (const b of $('#postKinds').querySelectorAll('[data-k]')) b.classList.toggle('sel', b.dataset.k === k);
+  $('#postKindNote').textContent = !SWITCH.includes(tg.kind) ? '' : tg.locked ? 'This post has replies: it stays a post.'
+    : k === 'post' ? 'A post: everyone in the lecture sees it (anonymous).' : `A ${k}: only the lecturer sees it (anonymous).`;
+}
+$('#postKinds').addEventListener('click', e => { const b = e.target.closest('[data-k]'); if (b && !b.disabled) setEditKind(b.dataset.k); });
 function closePostForm() { postTarget = null; const f = $('#postForm'); if (f) f.hidden = true; }
 $('#postCancel').addEventListener('click', closePostForm);
 $('#postText').addEventListener('keydown', e => {
@@ -816,10 +884,20 @@ $('#postForm').addEventListener('submit', async e => {
   if (!text || !tg || tg.page !== cur) { closePostForm(); return; }
   closePostForm();
   try {
-    if (tg.edit) {
-      const { error } = await sb.rpc('edit_post', { post: tg.id, new_text: text });
-      if (error) throw /function|schema cache/i.test(error.message) ? new Error('editing is not switched on in this course yet (the lecturer has to update the database)') : error;
-      setNoteStatus('post saved');
+    if (tg.edit && tg.src === 'note') {
+      const { error } = await sb.from('student_notes').update({ text, updated_at: new Date().toISOString() }).eq('id', tg.id);
+      if (error) throw error;
+      setNoteStatus('note saved');
+    } else if (tg.edit) {
+      const change = tg.newKind !== tg.kind ? tg.newKind : null;
+      let { error } = await sb.rpc('edit_mine', { item: tg.id, new_text: text, new_kind: change });
+      if (error && /function|schema cache/i.test(error.message)) {
+        // supabase-edit-move.sql not run yet: posts and replies can still be edited the old way (text only)
+        if (!change && ['post', 'reply'].includes(tg.kind)) ({ error } = await sb.rpc('edit_post', { post: tg.id, new_text: text }));
+        if (error) throw new Error(`${change ? 'changing the type' : 'editing this'} is not switched on in this course yet (the lecturer has to update the database)`);
+      }
+      if (error) throw error;
+      setNoteStatus(!change ? `${tg.kind} saved` : change === 'post' ? 'now a post: everyone sees it' : `now a ${change}: only the lecturer sees it`);
     } else {
       const { error } = await sb.from('questions').insert({ lecture_id: lecture.id, page_no: cur, text, kind: 'reply', parent: tg.id });
       if (error) throw /kind_check|check constraint|parent|column|schema cache/i.test(error.message) ? new Error('replies are not switched on in this course yet (the lecturer has to update the database)') : error;
@@ -896,6 +974,13 @@ $('#sheet').addEventListener('pointermove', e => {
 // A tap is a short press that hardly moves: the end of a pen stroke is not a tap.
 let lastTap = null;
 $('#sheet').addEventListener('pointerup', e => {
+  if (placing && e.button === 0) { // "Move" from the menu: this tap is where it goes
+    const it = placing, r = $('#sheet').getBoundingClientRect();
+    stopPlacing();
+    suppressUntil = performance.now() + 400; lastTap = null;
+    moveItem(it, (e.clientX - r.left) / geo.s, (e.clientY - r.top) / geo.s);
+    return;
+  }
   if (noteMode || textMode || e.target.closest('.pin, .b-note, #postForm')) return;
   const now = performance.now();
   if (!press || press.moved > 12 || now - press.t > 350) { lastTap = null; return; }
@@ -907,6 +992,166 @@ $('#sheet').addEventListener('pointerup', e => {
 document.addEventListener('pointerdown', e => {
   if (!$('#placeForm').hidden && !e.target.closest('#placeForm') && !e.target.closest('#sheet')) closePlace();
 });
+
+// ----------------------------------------------------------------------------------- hold, right-click, move
+// Finger and pen: hold still on a post, comment, question or note for HOLD ms. Your own lifts: drag it
+// to move it, or let go without moving for the menu. Another's (or the empty page): the menu at once.
+// Mouse: drag your own at once; right-click for the menu. The menu's "Move" asks for one tap where it
+// should go (Esc, or a tap outside the page, cancels), so there is no mode to get out of.
+// The lecturer sees the new place live (questions x, y; move_mine in supabase-edit-move.sql).
+const HOLD = 450;
+let hold = null, suppressUntil = 0, pinsPending = false, placing = null, ctxItem = null;
+const movable = it => !!it?.own && it.kind !== 'reply';
+let lastDown = { type: 'mouse', button: 0 };
+document.addEventListener('pointerdown', e => {
+  lastDown = { type: e.pointerType, button: e.button };
+  if (!e.target.closest('#ctxMenu')) hideCtx();
+  if (placing && !e.target.closest('#sheet')) { stopPlacing(); setNoteStatus('not moved'); }
+}, true);
+$('#sheet').addEventListener('pointerdown', e => {
+  if (noteMode || textMode || placing || e.button !== 0 || view === 'doc') return;
+  if (e.target.closest('.pin-edit, .tx-box, #postForm')) return;
+  const el = e.target.closest('#pins .b-reply, #pins .b-note, #pins .pin');
+  hold = { el, it: itemOf(el), pid: e.pointerId, type: e.pointerType, x: e.clientX, y: e.clientY, lifted: false, dragging: false, timer: 0 };
+  if (e.pointerType !== 'mouse') hold.timer = setTimeout(holdFire, HOLD);
+  else if (!movable(hold.it) || !el.matches('.b-note, .pin')) hold = null; // the mouse only drags your own
+});
+function holdFire() {
+  const h = hold;
+  if (!h) return;
+  h.timer = 0;
+  if (movable(h.it) && h.el.matches('.b-note, .pin')) { h.lifted = true; h.el.classList.add('lifted'); navigator.vibrate?.(15); return; }
+  hold = null; suppressUntil = performance.now() + 600; lastTap = null;
+  openCtx(h.x, h.y, h.it);
+}
+document.addEventListener('pointermove', e => {
+  const h = hold;
+  if (!h || e.pointerId !== h.pid) return;
+  if (!h.dragging) {
+    if (Math.hypot(e.clientX - h.x, e.clientY - h.y) < (h.type === 'mouse' ? 5 : 8)) return;
+    if (h.type === 'mouse' ? !(e.buttons & 1) : !h.lifted) { clearTimeout(h.timer); hold = null; return; } // scrolling, not holding
+    startDrag(h);
+  }
+  h.el.style.left = h.left0 + e.clientX - h.x + 'px';
+  h.el.style.top = h.top0 + e.clientY - h.y + 'px';
+});
+// the finger must not scroll the page while it carries a note
+document.addEventListener('touchmove', e => { if (hold?.lifted || hold?.dragging) e.preventDefault(); }, { passive: false });
+function startDrag(h) {
+  clearTimeout(h.timer);
+  h.dragging = true;
+  h.el.classList.remove('lifted');
+  h.el.classList.add('dragging');
+  closePostForm();
+  if (h.el.closest('.b-col')) { // a post typed in the side field: out of the column, onto the page
+    const p = $('#pins').getBoundingClientRect(), r = h.el.getBoundingClientRect();
+    $('#pins').appendChild(h.el);
+    Object.assign(h.el.style, { position: 'absolute', left: r.left - p.left + 'px', top: r.top - p.top + 'px', transform: 'none' });
+  }
+  h.left0 = parseFloat(h.el.style.left) || 0;
+  h.top0 = parseFloat(h.el.style.top) || 0;
+}
+const endHold = e => {
+  const h = hold;
+  if (!h || e.pointerId !== h.pid) return;
+  clearTimeout(h.timer);
+  hold = null;
+  if (h.dragging) {
+    suppressUntil = performance.now() + 400; lastTap = null;
+    h.el.classList.remove('dragging');
+    if (e.type === 'pointercancel') { pinsPending = false; renderPins(); return; }
+    // the new place, anchored the way renderPins anchors it (a note near the right / bottom edge hangs
+    // from its right / bottom side), so it does not jump when drawn again
+    const { s, W, H } = geo, p = $('#pins').getBoundingClientRect(), r = h.el.getBoundingClientRect();
+    let x, y;
+    if (h.el.matches('.pin')) { x = (r.left + r.width / 2 - p.left) / s; y = (r.top + r.height / 2 - p.top) / s; }
+    else {
+      const sc = scOf(), l = r.left - p.left, t = r.top - p.top;
+      x = (l > W * s - 250 * sc ? l + r.width : l) / s;
+      y = (t > H * s - 100 * sc ? t + r.height : t) / s;
+    }
+    moveItem(h.it, x, y);
+    return;
+  }
+  if (h.lifted) {
+    h.el.classList.remove('lifted');
+    suppressUntil = performance.now() + 600; lastTap = null;
+    if (e.type === 'pointerup') openCtx(h.x, h.y, h.it);
+  }
+};
+document.addEventListener('pointerup', endHold);
+document.addEventListener('pointercancel', endHold);
+
+async function moveItem(it, x, y) {
+  x = Math.round(Math.max(0, Math.min(geo.W, x)));
+  y = Math.round(Math.max(0, Math.min(geo.H, y)));
+  const was = { x: it.q.x, y: it.q.y };
+  it.q.x = x; it.q.y = y; // here at once; the database tells the lecturer
+  pinsPending = false;
+  renderPins();
+  try {
+    if (it.src === 'note') {
+      const { error } = await sb.from('student_notes').update({ x, y }).eq('id', it.id);
+      if (error) throw error;
+    } else {
+      const { error } = await sb.rpc('move_mine', { item: it.id, nx: x, ny: y });
+      if (error) throw /function|schema cache/i.test(error.message) ? new Error('moving is not switched on in this course yet (the lecturer has to update the database)') : error;
+    }
+    setNoteStatus('moved');
+  } catch (err) {
+    Object.assign(it.q, was);
+    renderPins();
+    setNoteStatus('not moved: ' + (err.message || err));
+  }
+}
+function startPlacing(it) {
+  placing = it;
+  document.body.classList.add('placing');
+  $(`#pins [data-id="${it.id}"]`)?.classList.add('placing-item');
+  setNoteStatus('Tap the page where it should go (Esc: cancel)…');
+}
+function stopPlacing() {
+  if (!placing) return;
+  placing = null;
+  document.body.classList.remove('placing');
+  for (const el of document.querySelectorAll('.placing-item')) el.classList.remove('placing-item');
+  setNoteStatus('');
+}
+
+// the menu: what can be done with the one under the finger / mouse, and for all of them
+const anyShown = () => ['showPosts', 'showQuestions', 'showNotes'].some(id => $('#' + id).checked);
+function openCtx(cx, cy, it) {
+  const m = $('#ctxMenu'), all = $('#openAll').checked;
+  const rows = [];
+  if (it) {
+    rows.push(`<div class="what">${KIND[it.kind].icon} ${esc(it.q.text.slice(0, 50))}</div>`);
+    if (it.own) {
+      rows.push(`<button data-c="edit">✏️ Edit${SWITCH.includes(it.kind) ? ' / change the type' : ''}</button>`);
+      if (movable(it)) rows.push('<button data-c="move">✥ Move</button>');
+    } else if (['post', 'reply'].includes(it.kind)) rows.push('<button data-c="reply">↩ Reply</button>');
+    rows.push('<hr>');
+  }
+  rows.push(`<button data-c="openall">${all ? '▣ Close all comments' : '▤ Show all comments (open)'}</button>`);
+  rows.push(`<button data-c="hide">${anyShown() ? '🙈 Hide comments' : '👁 Show comments'}</button>`);
+  m.innerHTML = rows.join('');
+  ctxItem = it;
+  m.hidden = false;
+  m.style.left = Math.max(4, Math.min(cx, innerWidth - m.offsetWidth - 4)) + 'px';
+  m.style.top = Math.max(4, Math.min(cy, innerHeight - m.offsetHeight - 4)) + 'px';
+}
+function hideCtx() { const m = $('#ctxMenu'); if (m && !m.hidden) { m.hidden = true; ctxItem = null; } }
+$('#ctxMenu').addEventListener('click', e => {
+  const b = e.target.closest('[data-c]');
+  if (!b) return;
+  const it = ctxItem, r = $('#ctxMenu').getBoundingClientRect(), c = b.dataset.c;
+  hideCtx();
+  if (c === 'edit') openEdit(it, r.left, r.top);
+  else if (c === 'reply') openPostForm(it.id, r.left, r.top);
+  else if (c === 'move') startPlacing(it);
+  else if (c === 'openall') { $('#openAll').checked = !$('#openAll').checked; showChanged(); }
+  else if (c === 'hide') { const on = !anyShown(); for (const id of ['showPosts', 'showQuestions', 'showNotes']) $('#' + id).checked = on; showChanged(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { hideCtx(); if (placing) { stopPlacing(); setNoteStatus('not moved'); } } });
 function renderMine() {
   const t = typed.get(cur) || { notes: [], questions: [] };
   const status = { open: 'sent', answered: 'answered', hidden: 'seen' };
@@ -940,18 +1185,27 @@ $('#prev').addEventListener('click', () => step(-1));
 $('#next').addEventListener('click', () => step(1));
 $('#follow').addEventListener('change', () => { if ($('#follow').checked) showPage(nearestPage(lecturerPage)); });
 // the View menu: one of ink / ink + typeset / typeset / document, plus what of your own to show
-$('#viewBtn').addEventListener('click', e => { e.stopPropagation(); $('#viewMenu').hidden = !$('#viewMenu').hidden; });
-document.addEventListener('click', e => { if (!e.target.closest('#viewWrap')) $('#viewMenu').hidden = true; });
-$('#viewMenu').addEventListener('change', e => {
-  if (e.target.name === 'view') setView(e.target.value);
-  else { LS.set('ink2latex.viewer.show', { notes: $('#showNotes').checked, questions: $('#showQuestions').checked }); renderNotes(); renderPins(); myText.setHidden(!$('#showNotes').checked); }
+$('#viewBtn').addEventListener('click', e => { e.stopPropagation(); $('#cmtMenu').hidden = true; $('#viewMenu').hidden = !$('#viewMenu').hidden; });
+document.addEventListener('click', e => {
+  if (!e.target.closest('#viewWrap')) $('#viewMenu').hidden = true;
+  if (!e.target.closest('#cmtWrap')) $('#cmtMenu').hidden = true;
 });
+$('#viewMenu').addEventListener('change', e => { if (e.target.name === 'view') setView(e.target.value); });
+// the 💬 Comments menu: everyone's posts, your comments & questions, your notes: shown or hidden; open all
+$('#cmtBtn').addEventListener('click', e => { e.stopPropagation(); $('#viewMenu').hidden = true; $('#cmtMenu').hidden = !$('#cmtMenu').hidden; });
+$('#cmtMenu').addEventListener('change', showChanged);
+function showChanged() {
+  LS.set('ink2latex.viewer.show', { notes: $('#showNotes').checked, questions: $('#showQuestions').checked, posts: $('#showPosts').checked, all: $('#openAll').checked });
+  $('#cmtBtn').classList.toggle('off', !anyShown());
+  if (!lecture) return;
+  renderNotes(); renderPins(); myText.setHidden(!$('#showNotes').checked);
+}
 $('#leave').addEventListener('click', leave);
 // full screen: the page alone, a small floating bar at the left (fullscreen.js)
 const fullscreen = initFullscreen({
   toolbar: $('#bar'),
   hide: [$('#side')],
-  menuOpen: () => !$('#viewMenu').hidden,
+  menuOpen: () => !$('#viewMenu').hidden || !$('#cmtMenu').hidden,
   tools: [
     { icon: '＋', tip: 'Zoom in (or pinch with two fingers)', run: () => { const r = wrapEl.getBoundingClientRect(); zoomTo(zoom * 1.25, r.left + r.width / 2, r.top + r.height / 2); } },
     { icon: '−', tip: 'Zoom out', run: () => { const r = wrapEl.getBoundingClientRect(); zoomTo(zoom / 1.25, r.left + r.width / 2, r.top + r.height / 2); } },
@@ -980,7 +1234,11 @@ let resizeTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => lecture && render(), 150); });
 view = LS.get('ink2latex.viewer.view') || 'ink';
 for (const r of document.querySelectorAll('#viewMenu [name=view]')) r.checked = r.value === view;
-{ const sh = LS.get('ink2latex.viewer.show'); if (sh) { $('#showNotes').checked = sh.notes !== false; $('#showQuestions').checked = sh.questions !== false; } }
+{
+  const sh = LS.get('ink2latex.viewer.show');
+  if (sh) { $('#showNotes').checked = sh.notes !== false; $('#showQuestions').checked = sh.questions !== false; $('#showPosts').checked = sh.posts !== false; $('#openAll').checked = !!sh.all; }
+  $('#cmtBtn').classList.toggle('off', !anyShown());
+}
 
 (async () => {
   try { await loadLibs(); } catch {
