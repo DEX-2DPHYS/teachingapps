@@ -2,7 +2,7 @@
 // so students can follow in the viewer (../viewer/). Only the lecturer app has AI keys; students
 // only read. The lecturer signs in with a normal Supabase account (email + password).
 
-import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-30.0954';
+import { SUPABASE_URL, SUPABASE_KEY, SCHEMA, VIEWER_URL, LIBS } from '../config.js?v=2026-10-30.1002';
 
 const SEND_DELAY = 1500; // ms after the last change
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
@@ -398,6 +398,8 @@ export function initSend(app) {
   // appear on the board where the student put them: red = question, green = comment (View menu:
   // "Student comments & questions"). A new one pops up with a short bump.
   let qTimer = 0, qChannel = null, questions = [], seen = null, expanded = null;
+  let expandAll = false;           // right-click → Show all comments: every circle open
+  let drag = null, dragEnd = 0;    // a student's note being dragged to a new place
   const qBtn = document.createElement('button');
   qBtn.id = 'qBadge';
   qBtn.title = 'Posts, comments and questions from students';
@@ -513,8 +515,20 @@ export function initSend(app) {
       sheet.appendChild(dotsLayer);
       new ResizeObserver(() => renderDots()).observe(sheet); // zoom, window size, page format
       dotsLayer.addEventListener('pointerdown', e => e.stopPropagation());
+      // drag any student's post, comment or question to another place (questions x, y: the students see
+      // it move). A press that hardly moves stays a click, so double-click and open still work.
+      dotsLayer.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || e.target.closest('button:not(.s-dot-c), textarea, input, .s-dot-text')) return;
+        const el = e.target.closest('.b-note, .s-dot, .b-chip');
+        const q = el && questions.find(x => x.id === el.dataset.id);
+        if (q) drag = { el, q, pid: e.pointerId, x: e.clientX, y: e.clientY, on: false };
+      });
+      document.addEventListener('pointermove', dragMove);
+      document.addEventListener('pointerup', dragStop);
+      document.addEventListener('pointercancel', dragStop);
       let lastTap = null;
       dotsLayer.addEventListener('click', e => {
+        if (performance.now() - dragEnd < 300) return; // the end of a drag
         const a = e.target.closest('[data-qa]');
         if (a) { act(a.dataset.qa, a.dataset.id); return; }
         // double-click / double tap on a post (open note, closed circle or chip): close / open it, for
@@ -545,6 +559,7 @@ export function initSend(app) {
         openScale(e.clientX, e.clientY);
       });
     }
+    if (drag?.on) return; // drawn again when it is dropped
     dotsLayer.dataset.page = app.state.cur;
     const s = app.board.s, pg = app.state.pages[app.state.cur];
     const here = app.settings.showStudent === false || pg?.hidden ? []
@@ -557,7 +572,7 @@ export function initSend(app) {
     const placed = q => q.x != null && q.y != null;
     // replies under the post they answer (each with ✕ to remove it, when pointed at)
     const replies = q => { const rs = repliesOf(q); return rs.length ? `<div class="b-replies">${rs.map(r => `<div class="b-reply" data-id="${r.id}">↳ ${esc(r.text)}${r.edited_at ? ' <span class="dim">(edited)</span>' : ''}<button data-qa="hidden" data-id="${r.id}" title="Remove this reply, for everyone">✕</button></div>`).join('')}</div>` : ''; };
-    const note = (q, style = '') => `<div class="b-note st-${q.status}${bump.has(q.id) || repliesOf(q).some(r => bump.has(r.id)) ? ' bump' : ''}" data-id="${q.id}" title="Double-click to close it (for everyone) · right-click: size"${style}>
+    const note = (q, style = '') => `<div class="b-note st-${q.status}${bump.has(q.id) || repliesOf(q).some(r => bump.has(r.id)) ? ' bump' : ''}" data-id="${q.id}" title="Double-click to close it (for everyone) · drag: move · right-click: size, show all"${style}>
         <div class="q-text">${esc(q.text)}${q.edited_at ? ' <span class="dim">(edited)</span>' : ''}</div>${replies(q)}${q.answer ? `<div class="q-answer"><b>Your reply:</b> ${esc(q.answer)}</div>` : ''}
         <div class="q-act">${actions(q, false)}</div></div>`;
     const chip = q => `<div class="b-chip" data-id="${q.id}" style="--sc:${sc()}" title="${esc(q.text)} (double-click to open it)">📌 ${esc(q.text.slice(0, 24))}${q.text.length > 24 ? '…' : ''}</div>`;
@@ -568,12 +583,56 @@ export function initSend(app) {
       dotsLayer.innerHTML = here.filter(placed).map(q => isNote(q)
         ? note(q, ` style="--sc:${sc()};left:${q.x * s}px;top:${q.y * s}px;transform:translate(${q.x * s > W - 270 * sc() ? '-100%' : '0'},${q.y * s > H - 120 * sc() ? '-100%' : '0'})"`)
         : `
-        <div class="s-dot k-${kindOf(q)} st-${q.status}${q.x > app.board.pageW / 2 ? ' flip' : ''}${q.id === expanded ? ' expanded' : ''}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" style="--sc:${sc()};left:${q.x * s}px;top:${q.y * s}px">
+        <div class="s-dot k-${kindOf(q)} st-${q.status}${q.x > app.board.pageW / 2 ? ' flip' : ''}${q.id === expanded || expandAll ? ' expanded' : ''}${bump.has(q.id) ? ' bump' : ''}" data-id="${q.id}" style="--sc:${sc()};left:${q.x * s}px;top:${q.y * s}px">
           <button class="s-dot-c" title="${esc(q.text)}${isPost(q) ? ' (double-click to open it)' : ''}">${icon[kindOf(q)]}</button>
           <div class="s-dot-text"><div class="q-text">${esc(q.text)}</div>${replyBox(q)}<div class="q-act">${actions(q, false)}</div></div>
         </div>`).join('')
         + (loose.length ? `<div class="b-col">${loose.map(q => (isNote(q) ? note(q, ` style="--sc:${sc()}"`) : chip(q))).join('')}</div>` : '');
     });
+  }
+  function dragMove(e) {
+    const d = drag;
+    if (!d || e.pointerId !== d.pid) return;
+    if (!d.on) {
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) return;
+      d.on = true;
+      d.el.classList.add('dragging');
+      if (d.el.closest('.b-col')) { // typed in the side field (left column): out of the column, onto the page
+        const p = dotsLayer.getBoundingClientRect(), r = d.el.getBoundingClientRect();
+        dotsLayer.appendChild(d.el);
+        Object.assign(d.el.style, { position: 'absolute', left: r.left - p.left + 'px', top: r.top - p.top + 'px', transform: 'none' });
+      }
+      d.left0 = parseFloat(d.el.style.left) || 0;
+      d.top0 = parseFloat(d.el.style.top) || 0;
+    }
+    d.el.style.left = d.left0 + e.clientX - d.x + 'px';
+    d.el.style.top = d.top0 + e.clientY - d.y + 'px';
+  }
+  async function dragStop(e) {
+    const d = drag;
+    if (!d || e.pointerId !== d.pid) return;
+    drag = null;
+    if (!d.on) return;
+    dragEnd = performance.now();
+    d.el.classList.remove('dragging');
+    if (e.type === 'pointercancel') { renderDots(); return; }
+    // the new place, anchored as renderDots anchors it (a note near the right / bottom edge hangs from
+    // that side; a circle by its centre), so it does not jump when drawn again
+    const s = app.board.s, W = app.board.pageW, H = app.board.pageH;
+    const p = dotsLayer.getBoundingClientRect(), r = d.el.getBoundingClientRect();
+    let x, y;
+    if (d.el.matches('.b-note')) {
+      const l = r.left - p.left, t = r.top - p.top;
+      x = (l > W * s - 270 * sc() ? l + r.width : l) / s;
+      y = (t > H * s - 120 * sc() ? t + r.height : t) / s;
+    } else { x = (r.left + r.width / 2 - p.left) / s; y = (r.top + r.height / 2 - p.top) / s; }
+    x = Math.round(Math.max(0, Math.min(W, x)));
+    y = Math.round(Math.max(0, Math.min(H, y)));
+    const was = { x: d.q.x, y: d.q.y };
+    d.q.x = x; d.q.y = y; // at once on this board; the database tells the students
+    renderDots();
+    const { error } = await (await client()).from('questions').update({ x, y }).eq('id', d.q.id);
+    if (error) { Object.assign(d.q, was); renderDots(); app.toast?.('Not moved: ' + error.message); }
   }
   // one size for ALL students' posts, comments and questions (settings.noteScale): the right-click
   // slider and Settings → Board change the board at once; the lecture gets it after a short pause
@@ -600,13 +659,15 @@ export function initSend(app) {
     p.id = 'scalePop';
     const pct = v => Math.round(v * 100) + ' %';
     p.innerHTML = `<div class="dim small">Size of all students' posts, comments and questions (also on the students' computers, not phones)</div>
-      <div class="row"><input type="range" min="0.5" max="3" step="0.05" value="${sc()}"> <span>${pct(sc())}</span> <button data-r title="Normal size">100 %</button></div>`;
+      <div class="row"><input type="range" min="0.5" max="3" step="0.05" value="${sc()}"> <span>${pct(sc())}</span> <button data-r title="Normal size">100 %</button></div>
+      <div class="row"><button data-all title="Open every comment and question on the page (only on this board)">${expandAll ? '▣ Close all comments' : '▤ Show all comments'}</button> <span class="dim small">· drag one to move it</span></div>`;
     document.body.appendChild(p);
     p.style.left = Math.max(4, Math.min(x, innerWidth - p.offsetWidth - 4)) + 'px';
     p.style.top = Math.max(4, Math.min(y, innerHeight - p.offsetHeight - 4)) + 'px';
     const r = p.querySelector('input');
     r.addEventListener('input', () => setNoteScale(+r.value));
     p.querySelector('[data-r]').addEventListener('click', () => setNoteScale(1));
+    p.querySelector('[data-all]').addEventListener('click', () => { expandAll = !expandAll; if (!expandAll) expanded = null; renderDots(); p.remove(); });
     p.addEventListener('pointerdown', e => e.stopPropagation());
     const close = e => {
       if (e.type === 'keydown' ? e.key !== 'Escape' : p.contains(e.target)) return;

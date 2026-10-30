@@ -459,6 +459,9 @@ details textarea {
 /* the ones typed in the side panel (no place): a column at the left (the right edge can be off screen) */
 .b-col { position: absolute; left: 8px; top: 34px; bottom: 8px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; overflow-y: auto; pointer-events: none; }
 .b-col .b-note { position: relative; }
+/* a student's note being dragged to a new place */
+#studentDots .dragging { z-index: 5; opacity: .9; cursor: grabbing; filter: drop-shadow(0 8px 14px rgba(0,0,0,.35)); }
+#studentDots .b-note, #studentDots .s-dot-c, #studentDots .b-chip { cursor: grab; }
 
 #diag {
   position: fixed; left: 10px; bottom: 10px; z-index: 200; pointer-events: none;
