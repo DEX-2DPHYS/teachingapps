@@ -1,18 +1,18 @@
 // DTUwrite app: groups ink into regions, transcribes them via the local server,
 // shows results in the side panel, interprets whole pages, handles photos, pages, print and export.
 
-import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-30.1002';
-import { sameReading, readingOf } from './latexnorm.js?v=2026-10-30.1002';
-import { straightenFigure, recognize, SHAPE_TOOLS } from './shapes.js?v=2026-10-30.1002';
-import { initSend } from './send.js?v=2026-10-30.1002';
-import { initStudent } from './student.js?v=2026-10-30.1002';
-import { initAssign } from './assign.js?v=2026-10-30.1002';
-import { initVoice } from './voice.js?v=2026-10-30.1002';
-import { EMBED, initEmbed } from './embed.js?v=2026-10-30.1002';
-import { initFullscreen } from '../fullscreen.js?v=2026-10-30.1002';
-import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-30.1002';
-import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-30.1002';
-import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-30.1002';
+import { Board, PAGE, renderCrop, renderRegion, renderPageImage, strokeBox, unionBox, strokePath, paintStroke, insidePolygon } from './ink.js?v=2026-10-30.1151';
+import { sameReading, readingOf } from './latexnorm.js?v=2026-10-30.1151';
+import { straightenFigure, recognize, SHAPE_TOOLS } from './shapes.js?v=2026-10-30.1151';
+import { initSend } from './send.js?v=2026-10-30.1151';
+import { initStudent } from './student.js?v=2026-10-30.1151';
+import { initAssign } from './assign.js?v=2026-10-30.1151';
+import { initVoice } from './voice.js?v=2026-10-30.1151';
+import { EMBED, initEmbed } from './embed.js?v=2026-10-30.1151';
+import { initFullscreen } from '../fullscreen.js?v=2026-10-30.1151';
+import { paneLayer, newPaneId, publicPanes, paneZoom } from '../panes.js?v=2026-10-30.1151';
+import { TextLayer, plainText, sanitize, fillMath } from '../textboxes.js?v=2026-10-30.1151';
+import { imageLayer, drawImages, fitInPage, compressImage, pdfToImages, blobToDataUrl, dataUrlToBlob, publicImages, newImageId } from '../figures.js?v=2026-10-30.1151';
 
 const $ = sel => document.querySelector(sel);
 const MODELS = {
@@ -113,7 +113,7 @@ function layoutOf(page = curPage()) {
 }
 
 const board = new Board($('#board'), {
-  onCommit: () => { $('#hint').hidden = true; layoutVer++; clearErrorMarks(true); pruneGone(); scheduleRegroup(); scheduleInterpret(); saveSoon(); updateUndoButtons(); },
+  onCommit: () => { boardUndo = null; $('#hint').hidden = true; layoutVer++; clearErrorMarks(true); pruneGone(); scheduleRegroup(); scheduleInterpret(); saveSoon(); updateUndoButtons(); },
   onSnap: (type, p) => toastAt(`${type}: move to adjust, lift to place`, p),
   onSelect: sel => placeSelBar(sel),
   onTransform: strokes => afterTransform(strokes),
@@ -435,7 +435,7 @@ function openClearDialog() {
     if (b.dataset.c === 'cancel') { d.remove(); return; }
     if (b.dataset.c === 'delpage') { d.remove(); deletePages(false); return; }
     if (b.dataset.c === 'restart') {
-      if (!confirm(`Delete all ${state.pages.length} pages and start with one empty page? This cannot be undone.`)) return;
+      if (!confirm(`Delete all ${state.pages.length} pages and start with one empty page?`)) return;
       d.remove(); deletePages(true); return;
     }
     const images = d.querySelector('[data-c=images]').checked, writing = d.querySelector('[data-c=writing]').checked;
@@ -446,6 +446,7 @@ function openClearDialog() {
 }
 // Delete this page (all = false) or all pages (start over with one empty page)
 function deletePages(all) {
+  const snap = boardSnapshot();
   if (all || state.pages.length === 1) {
     state.pages.splice(0, state.pages.length, newPage());
     state.cur = 0;
@@ -455,7 +456,7 @@ function deletePages(all) {
   }
   gotoPage(state.cur);
   board.request(); renderAll(); renderFigHandles(); saveSoon();
-  toast(all ? 'All pages deleted: a fresh board' : `Page deleted (${state.pages.length} left)`);
+  offerBoardUndo(snap, all ? 'All pages deleted: a fresh board' : `Page deleted (${state.pages.length} left)`);
 }
 function clearPages({ images, writing, all }) {
   const targets = all ? state.pages : [curPage()];
@@ -767,9 +768,11 @@ document.addEventListener('click', e => {
   if (a === 'add') { state.pages.splice(i + 1, 0, newPage()); pagesChanged(curObj); return; }
   if (a === 'del') {
     if ((p.strokes.length || p.texts?.length) && !confirm(`Delete page ${i + 1} with its writing?`)) return;
+    const snap = boardSnapshot();
     state.pages.splice(i, 1);
     if (!state.pages.length) state.pages.push(newPage());
     pagesChanged(curObj);
+    offerBoardUndo(snap, `Page ${i + 1} deleted`);
   }
 }, true);
 // tap = go to the page; drag = move it (pointer events: mouse, pen and finger alike)
@@ -855,7 +858,7 @@ applyFsPanel(); toast('Tool bar hidden: View → Tool bar brings it back (the ke
     { icon: '▢', tip: 'Rounded rectangle: drag from corner to corner (Shift: square). Stays on until you choose another tool', run: () => setTool('roundrect'), on: () => board.tool === 'roundrect' },
     { icon: '🎨', tip: 'Pen colour, see-through, dashed, width (or hold C)', run: () => openPenPop('style') },
     null,
-    { icon: '↶', tip: 'Undo (Ctrl+Z)', run: () => board.undo() },
+    { icon: '↶', tip: 'Undo (Ctrl+Z)', run: () => undoAny() },
     { icon: '↷', tip: 'Redo (Ctrl+Y)', run: () => board.redo() },
     null,
     { icon: '＋', tip: 'Zoom in (Ctrl + wheel)', run: () => board.setZoom(board.zoom * 1.2) },
@@ -1055,7 +1058,7 @@ function pruneGone(page = curPage()) {
 // Undo / Redo look unavailable when there is nothing to undo or redo on this page
 function updateUndoButtons() {
   const p = curPage();
-  $('#undo').disabled = !p.undo?.length;
+  $('#undo').disabled = !p.undo?.length && !boardUndo;
   $('#redo').disabled = !p.redo?.length;
 }
 
@@ -1588,7 +1591,7 @@ async function aiFetch(method, body) {
     if (TOKEN) headers['x-ink-token'] = TOKEN;
     return fetch(method === 'GET' ? '/api/engines' : '/api/transcribe', { method, headers, body });
   }
-  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-30.1002');
+  const { SUPABASE_URL, SUPABASE_KEY } = await import('../config.js?v=2026-10-30.1151');
   const headers = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
   let url = `${SUPABASE_URL}/functions/v1/ink2latex-ai`, token;
   if (student?.active()) {
@@ -2555,15 +2558,53 @@ function download(name, text, type = 'text/plain') {
 }
 
 let toastTimer = 0;
-function toast(msg, x, y) {
+// action (optional): { label, run } - a button in the message (e.g. Undo); such a message stays longer
+function toast(msg, x, y, action) {
   const t = $('#toast');
   t.textContent = msg;
+  if (action) {
+    const b = document.createElement('button');
+    b.textContent = action.label;
+    b.addEventListener('click', () => { t.classList.remove('show'); action.run(); });
+    t.append(' ', b);
+  }
+  t.classList.toggle('act', !!action);
   if (x == null) { const r = document.body.getBoundingClientRect(); x = r.width / 2 - 40; y = r.height - 50; }
   t.style.left = x + 'px'; t.style.top = y + 'px';
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), Math.max(1400, String(msg).length * 45)); // long ones: time to read
+  toastTimer = setTimeout(() => t.classList.remove('show'), action ? 8000 : Math.max(1400, String(msg).length * 45)); // long ones: time to read
 }
+
+// ----------------------------------------------------------------------------------- undo a whole-board change
+// Deleting pages and opening a session replace pages, which the ink's own undo (one history per page)
+// cannot bring back. Ctrl+Z, ↶ or Undo in the message puts the board back as it was, until the ink
+// changes again. The old pages are kept as objects, with their own undo histories.
+// (Found by the black-box teacher test, 2026-10-30: a deleted page and an opened session were lost for good.)
+var boardUndo = null; // var: the board's onCommit (above) clears it
+function boardSnapshot() {
+  return { pages: state.pages.slice(), cur: state.cur, photos: state.photos, cost: state.cost, calls: state.calls, costBy: state.costBy, orientation: settings.orientation };
+}
+function offerBoardUndo(snap, msg) {
+  boardUndo = snap;
+  updateUndoButtons();
+  toast(msg + ' (Ctrl+Z undoes)', null, null, { label: 'Undo', run: undoBoard });
+}
+function undoBoard() {
+  const s = boardUndo;
+  if (!s) return false;
+  boardUndo = null;
+  if (s.orientation !== settings.orientation) { settings.orientation = s.orientation; $('#orientation').value = s.orientation; board.setPageSize(s.orientation); saveSettings(); }
+  state.pages = s.pages; state.photos = s.photos;
+  state.cost = s.cost; state.calls = s.calls; state.costBy = s.costBy;
+  blockSeq = Math.max(blockSeq, ...state.pages.flatMap(p => p.blocks.map(b => b.id)));
+  photoSeq = Math.max(photoSeq, ...state.photos.map(p => p.id));
+  gotoPage(Math.min(s.cur, state.pages.length - 1));
+  board.request(); renderFigHandles(); renderHiddenBadge(); renderPages(); renderCost(); saveSoon(); updateUndoButtons();
+  toast('Undone: the board is back as it was');
+  return true;
+}
+const undoAny = () => { if (!undoBoard()) board.undo(); };
 function toastAt(msg, p) {
   const r = $('#board').getBoundingClientRect();
   toast(msg, r.left + p[0] * board.s + 14, r.top + p[1] * board.s - 28);
@@ -3242,10 +3283,15 @@ const typedTexts = pg => (pg.texts || []).filter(t => plainText(t.html).trim()).
 const TEX_ESC = { '\\': '\\textbackslash{}', '~': '\\textasciitilde{}', '^': '\\textasciicircum{}', 'µ': '\\textmu{}' };
 const texText = str => str.split(/(\$[^$]*\$)/)
   .map((p, i) => (i % 2 ? p : p.replace(/[\\&%#_{}~^µ]/g, c => TEX_ESC[c] || '\\' + c))).join('').replace(/\n/g, '\\\\\n');
+// Handwriting that was never read (the AI off, or not yet) is marked in the exports instead of left out
+// without a word, numbered like the panel's cards. (Black-box teacher test, 2026-10-30: an export with
+// the AI off held only the typed text, and nothing said so.)
+const unread = b => !b.result;
+const unreadCount = () => state.pages.reduce((n, pg) => n + sortedBlocks(pg).filter(({ b }) => unread(b)).length, 0);
 function allLatex() {
   const out = [];
   state.pages.forEach((pg, i) => {
-    const parts = [...sortedBlocks(pg).map(({ b }) => blockLatex(b)), ...typedTexts(pg).map(t => `% typed\n${texText(t)}`)].filter(Boolean);
+    const parts = [...sortedBlocks(pg).map(({ b }, k) => unread(b) ? `% [handwritten region ${k + 1}: not transcribed yet]` : blockLatex(b)), ...typedTexts(pg).map(t => `% typed\n${texText(t)}`)].filter(Boolean);
     if (parts.length) out.push(`% ---- page ${i + 1} ----\n\n` + parts.join('\n\n'));
   });
   state.photos.slice().reverse().forEach((p, i) => { if (p.result) out.push(`% ---- photo ${i + 1} ----\n\n` + photoLatex(p)); });
@@ -3255,7 +3301,7 @@ function allLatex() {
 function allMarkdown() {
   const out = [];
   state.pages.forEach((pg, i) => {
-    const parts = [...sortedBlocks(pg).map(({ b }) => blockMarkdown(b)), ...typedTexts(pg).map(t => `> ${t.replace(/\n/g, '\n> ')}`)].filter(Boolean);
+    const parts = [...sortedBlocks(pg).map(({ b }, k) => unread(b) ? `*[handwritten region ${k + 1}: not transcribed yet]*` : blockMarkdown(b)), ...typedTexts(pg).map(t => `> ${t.replace(/\n/g, '\n> ')}`)].filter(Boolean);
     if (parts.length) out.push(`## Page ${i + 1}\n\n` + parts.join('\n\n'));
     if (pg.interp?.data) out.push(`### Page ${i + 1} - interpretation\n\n${pg.interp.data.document}`);
   });
@@ -3650,7 +3696,7 @@ function penPopHtml(mode) {
   const bg = THEMES[settings.board].bg;
   const cur = penStyle();
   if (mode === 'style') {
-    return `<div class="pp-title">Pen <span class="dim">· let go of C to write</span></div>
+    return `<div class="pp-title">Pen <span class="dim">· ${penKey?.key === 'c' ? 'let go of C to write' : 'choose, then write on the page'}</span></div>
       <div class="pp-sample" style="background:${bg}">${penSample(cur, 220, 30)}</div>
       <div class="pp-colors">${PEN_COLORS.map(c => `<button data-pc="${c}" class="pp-col${c === cur.color ? ' on' : ''}" title="${PEN_COLOR_NAMES[c]}" style="--c:${THEMES[settings.board].palette[c]}"></button>`).join('')}</div>
       <div class="pp-row"><button data-pt="alpha" class="${cur.alpha < 1 ? 'on' : ''}" title="See-through ink, like a highlighter">See-through</button>
@@ -3675,8 +3721,16 @@ function openPenPop(mode) {
   const r = penPop.getBoundingClientRect();
   const wr = $('#boardWrap').getBoundingClientRect();
   const [px, py] = lastPointer || [wr.left + wr.width / 2, wr.top + wr.height / 2];
-  penPop.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, px - r.width / 2)) + 'px';
-  penPop.style.top = Math.max(8, Math.min(innerHeight - r.height - 8, py - r.height - 24)) + 'px';
+  let left = Math.max(8, Math.min(innerWidth - r.width - 8, px - r.width / 2));
+  const top = Math.max(8, Math.min(innerHeight - r.height - 8, py - r.height - 24));
+  // never under the tool bar (it is on top): opened from its 🎨 button, the palette went half under it,
+  // hiding the black ink colour, stored pen 1 and the fine width
+  const tb = $('#fsBar'), t = tb && !tb.hidden ? tb.getBoundingClientRect() : null; // the floating tool bar
+  if (t && t.width && left < t.right && left + r.width > t.left && top < t.bottom && top + r.height > t.top) {
+    left = t.right + 8 + r.width <= innerWidth - 8 ? t.right + 8 : Math.max(8, t.left - r.width - 8);
+  }
+  penPop.style.left = left + 'px';
+  penPop.style.top = top + 'px';
   // pointerdown, not click: a pen tap acts at once, and the page underneath never sees it
   penPop.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); penPopPick(e.target.closest('button')); });
 }
@@ -3688,6 +3742,7 @@ function penPopPick(btn) {
   const mode = penPop.dataset.mode;
   if (penKey) penKey.used = true;
   const d = btn.dataset;
+  penPop.dataset.picked = '1'; // a pen was chosen: the next press on the page closes the palette and writes
   if (mode === 'style') {
     const st = penStyle();
     if (d.pc) st.color = d.pc;
@@ -3754,8 +3809,20 @@ document.addEventListener('pointerdown', e => {
   const menus = [...document.querySelectorAll('.popup')].filter(m => !m.hidden);
   const palette = penPop && !penPop.contains(e.target);
   if (!menus.length && !palette) return;
+  const picked = palette && penPop.dataset.picked; // a colour / width was chosen in it: now the teacher writes
   if (palette) closePenPop();
   if (!e.target.closest?.('#boardWrap')) return; // elsewhere: the menus close as before
+  if (picked && !menus.length) return; // that press writes (it used to be lost: black-box teacher test, 2026-10-30)
+  menus.forEach(m => { m.hidden = true; });
+  e.preventDefault(); e.stopPropagation();
+}, true);
+// Esc closes an open menu (and does nothing else). Without it the menu stayed open, the next click
+// on its name closed it, and the click after that, meant for a menu item, drew on the page.
+// (Found by the black-box teacher test, 2026-10-30.)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const menus = [...document.querySelectorAll('.popup')].filter(m => !m.hidden);
+  if (!menus.length) return;
   menus.forEach(m => { m.hidden = true; });
   e.preventDefault(); e.stopPropagation();
 }, true);
@@ -3781,7 +3848,7 @@ function toggleKeys() {
   d.addEventListener('pointerdown', () => d.remove());
 }
 
-$('#undo').addEventListener('click', () => board.undo());
+$('#undo').addEventListener('click', () => undoAny());
 $('#redo').addEventListener('click', () => board.redo());
 $('#clear').addEventListener('click', () => { if (!curPage().strokes.length) { toast('No writing on this page to clear (slides and figures: 🖼 → Clear…)'); return; } board.clear(); });
 
@@ -3807,10 +3874,29 @@ $('#zoomOut').addEventListener('click', () => board.setZoom(board.zoom / 1.2));
 $('#zoomIn').addEventListener('click', () => board.setZoom(board.zoom * 1.2));
 $('#zoomReset').addEventListener('click', () => board.setZoom(1));
 board.setZoom(settings.zoom || 1);
+// what moves with the writing when it is fitted to the page: figures, HTML panes and text boxes
+// (not slide backgrounds, not the snapshots of a pane), each with its box in page units
+function pageObjs(pg = curPage()) {
+  const rect = o => ({ o, box: { x0: o.x, y0: o.y, x1: o.x + o.w, y1: o.y + o.h } });
+  return [
+    ...(pg.images || []).filter(im => !im.bg && !im.shot).map(rect),
+    ...(pg.panes || []).map(rect),
+    ...(pg.texts || []).map(t => {
+      const el = pg === curPage() ? textLayer.els.get(t.id) : null;
+      return { o: t, box: { x0: t.x, y0: t.y, x1: t.x + (el?.offsetWidth || t.w || 0), y1: t.y + (el?.offsetHeight || (t.size || 32) * 1.3) } };
+    }),
+  ];
+}
+board.onObjs = () => { board.fullDirty = true; textLayer.render(); renderFigHandles(); saveSoon(); };
 $('#fitPage').addEventListener('click', () => {
-  if (board.fitToPage()) { renderAll(); toast('Scaled to fit the page (Ctrl+Z undoes)'); }
+  if (board.fitToPage(40, pageObjs())) { renderAll(); toast('Scaled to fit the page (Ctrl+Z undoes)'); }
   else toast('Everything already fits on the page');
 });
+// true when ink, a figure, a pane or a text box of the current page reaches past the page's edges
+function contentOutside() {
+  const boxes = [...curPage().strokes.map(strokeBox), ...pageObjs().map(c => c.box)];
+  return boxes.some(b => b.x1 > board.pageW + 2 || b.y1 > board.pageH + 2 || b.x0 < -2 || b.y0 < -2);
+}
 
 // region boxes: all shown, only the one under the pen/mouse, or none (a clean page); B cycles
 const BOX_MODES = { always: '▢ All', hover: '▢ Current', none: '▢ Off' };
@@ -4013,7 +4099,11 @@ $('#noteScale').addEventListener('input', e => {
 const orientEl = $('#orientation');
 orientEl.value = settings.orientation;
 board.setPageSize(settings.orientation);
-orientEl.addEventListener('change', () => { settings.orientation = orientEl.value; saveSettings(); board.setPageSize(settings.orientation); renderAll(); saveSoon(); });
+orientEl.addEventListener('change', () => {
+  settings.orientation = orientEl.value; saveSettings(); board.setPageSize(settings.orientation); renderAll(); saveSoon();
+  // a smaller page leaves content outside, out of sight: say how to bring it back
+  if (contentOutside()) toast('Part of this page is now outside the new format: ▦ Pages → Fit writing to the page brings it back (Ctrl+Z undoes)');
+});
 
 for (const id of ['liveModel', 'finalModel']) {
   const sel = $('#' + id);
@@ -4220,6 +4310,11 @@ menu.addEventListener('click', e => {
   const what = e.target.dataset.export;
   if (!what) return;
   if (what !== 'load') settingsMenu.hidden = true;
+  // say so before exporting when handwriting has no transcription: it is only marked in the file
+  const n = ['copy-latex', 'tex', 'md'].includes(what) ? unreadCount() : 0;
+  if (n && !confirm(`${n} handwritten region${n > 1 ? 's have' : ' has'} no transcription yet`
+    + (settings.aiOff ? ' (the AI is off: switch it on to have the writing read)' : ' (still being read, or not read)')
+    + `, so ${n > 1 ? 'they are' : 'it is'} only marked as "not transcribed yet" in the export.\n\nExport anyway?`)) return;
   if (what === 'copy-latex') copyText(allLatex(), 'All LaTeX copied');
   if (what === 'tex') download(`DTUwrite-${stamp()}.tex`,
     `\\documentclass{article}\n\\usepackage{amsmath,amssymb}\n\\usepackage{tikz}\n\\begin{document}\n\n${allLatex()}\n\n\\end{document}\n`, 'application/x-tex');
@@ -4232,7 +4327,16 @@ $('#loadInput').addEventListener('change', async e => {
   const f = e.target.files[0];
   e.target.value = '';
   if (!f) return;
-  try { restore(JSON.parse(await f.text())); toast('Session loaded'); } catch (err) { toast('Could not load: ' + err.message); }
+  // the board on screen is replaced: ask first when there is something on it, and keep it for Undo
+  const used = state.pages.filter(p => p.strokes.length || p.texts?.length || p.images?.length || p.panes?.length).length;
+  if (used && !confirm(`Open "${f.name}"?\n\nIt replaces the board on screen (${state.pages.length} page${state.pages.length > 1 ? 's' : ''}). `
+    + 'Save session first if you want to keep this board as a file. Right after opening, Ctrl+Z brings this board back.')) return;
+  const snap = boardSnapshot();
+  try {
+    restore(JSON.parse(await f.text()));
+    saveSoon();
+    offerBoardUndo(snap, `Opened ${f.name}`);
+  } catch (err) { toast('Could not load: ' + err.message); }
 });
 
 // keyboard
@@ -4257,7 +4361,7 @@ document.addEventListener('keydown', e => {
     if (k === 'escape' && (penPop || $('#keysDlg'))) { closePenPop(); $('#keysDlg')?.remove(); return; }
     if (k === 'escape' && previewHeld) { previewLatched = false; previewDown = 0; setPreview(false); return; }
   }
-  if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); board.undo(); }
+  if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); undoAny(); }
   else if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); board.redo(); }
   else if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); printNow(); }
   else if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 'd') { e.preventDefault(); toggleDiag(); }

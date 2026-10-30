@@ -4,7 +4,7 @@
 // the page is scaled to fit the width of its container and scrolls vertically.
 
 import { getStroke } from 'https://cdn.jsdelivr.net/npm/perfect-freehand@1.2.3/+esm';
-import { recognize, liveShape, SHAPE_TOOLS, dragShape } from './shapes.js?v=2026-10-30.1002';
+import { recognize, liveShape, SHAPE_TOOLS, dragShape } from './shapes.js?v=2026-10-30.1151';
 
 // A4 (ratio 1 : sqrt 2) in both orientations, and 16:9 for slides and screens
 export const PAGE = { portrait: [1200, 1697], landscape: [1697, 1200], wide: [1920, 1080] };
@@ -248,6 +248,7 @@ export class Board {
     this.onSnap = onSnap || (() => {});
     this.onSelect = onSelect || (() => {});        // selection changed (or moved): sel | null
     this.onTransform = onTransform || (() => {});  // selected strokes were moved/resized
+    this.onObjs = () => {};                          // figures / panes / text boxes moved by an edit, its undo or redo
     this.sel = null;                               // {ids:Set, box}
     this.pickAt = null;                            // p -> stroke ids of the region under p (Select tool)
     this.pickPartAt = null;                        // p -> stroke ids of the piece of a group under p (Alt)
@@ -383,10 +384,12 @@ export class Board {
   }
 
   // Scale and move all strokes so they lie within the page margins (undoable). Returns true if anything changed.
-  fitToPage(margin = 40) {
+  // objs: what is not ink but belongs to the page's content (figures, HTML panes, text boxes), as
+  // { o, box }: moved and scaled with the strokes (x, y and, where set, w, h, size), in the same undo step
+  fitToPage(margin = 40, objs = []) {
     const st = this.page.strokes;
-    if (!st.length) return false;
-    const b = unionBox(st.map(strokeBox));
+    if (!st.length && !objs.length) return false;
+    const b = unionBox(st.map(strokeBox).concat(objs.map(c => c.box)));
     const W = this.pageW - 2 * margin, H = this.pageH - 2 * margin;
     const f = Math.min(1, W / (b.x1 - b.x0), H / (b.y1 - b.y0));
     // new top-left: keep the content where it is if it already fits, otherwise pull it inside the margins
@@ -394,10 +397,15 @@ export class Board {
     const ny = Math.min(Math.max(b.y0, margin), margin + H - (b.y1 - b.y0) * f);
     if (f === 1 && nx === b.x0 && ny === b.y0) return false;
     this.clearSelection();
+    const geom = o => Object.fromEntries(['x', 'y', 'w', 'h', 'size'].filter(k => o[k] != null).map(k => [k, o[k]]));
     this.applyEdits(st.map(s => ({
       s,
       after: { pts: s.pts.map(([x, y, p]) => [nx + (x - b.x0) * f, ny + (y - b.y0) * f, p]), shape: s.shape, size: s.size * f },
-    })));
+    })), objs.map(({ o }) => {
+      const before = geom(o), after = { x: nx + (o.x - b.x0) * f, y: ny + (o.y - b.y0) * f };
+      for (const k of ['w', 'h', 'size']) if (before[k] != null) after[k] = before[k] * f;
+      return { o, before, after };
+    }));
     return true;
   }
 
@@ -793,13 +801,16 @@ export class Board {
   }
 
   // changes: [{s, after:{pts, shape}}] - replaces stroke geometry in place (ids unchanged), undoable
-  applyEdits(changes) {
-    if (!changes.length) return;
+  // objs (optional): non-ink objects changed in the same step, as [{o, before, after}] (see fitToPage)
+  applyEdits(changes, objs = []) {
+    if (!changes.length && !objs.length) return;
     for (const c of changes) {
       c.before = { pts: c.s.pts, shape: c.s.shape, size: c.s.size };
       this.setGeom(c.s, c.after);
     }
-    this.push({ type: 'edit', changes }, 'edit');
+    for (const c of objs) Object.assign(c.o, c.after);
+    this.push({ type: 'edit', changes, objs }, 'edit');
+    if (objs.length) this.onObjs();
     this.request();
   }
 
@@ -814,6 +825,8 @@ export class Board {
     this.clearSelection();
     if (act.type === 'edit') {
       for (const c of act.changes) this.setGeom(c.s, isUndo ? c.before : c.after);
+      for (const c of act.objs || []) Object.assign(c.o, isUndo ? c.before : c.after);
+      if (act.objs?.length) this.onObjs();
     } else if (act.type === 'replace') {
       // a partial erase: the original strokes back and the pieces out (undo), or the other way round
       const out = new Set((isUndo ? act.added : act.removed).map(s => s.id));
